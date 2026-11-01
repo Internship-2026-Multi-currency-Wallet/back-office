@@ -21,14 +21,33 @@ nvm use                 # Node 26
 npm install
 npm run dev:mocks       # no backends needed: MSW answers every GraphQL call
 # or
-npm run dev             # against real backends on localhost:3000 / 3001 / 3002 (see the ops repository)
+npm run dev             # against real backends on localhost:3000 / 3001 / 3002
 ```
 
 Open <http://localhost:5174>. The home page shows the wallet-core health, the dev user from `me` and the status of
 all three backends; **Users** is a demo DataGrid page that needs the `bo:users` permission.
 
-Against real backends, start them with `DEV_AUTH=true` and set e.g. `VITE_DEV_USER=100:bo:users,bo:users:modify` (in `.env.local`).
-To run the whole system with docker-compose, see the `ops` repository.
+Real backends come from the `ops` repository (clone it next to this one, `../ops`). Start them in Docker from here —
+`npm run infra` calls `../ops/dev.sh`:
+
+```sh
+npm run infra -- up wallet-core rates-service treasury-service   # MySQL + Redis + these backends in containers
+npm run dev
+```
+
+or run a backend from source in its own folder (`npm run infra:up` there, then `DEV_AUTH=true npm run start:dev`).
+The backends listen on the same ports either way and must run with `DEV_AUTH=true` (containers from `ops` do).
+Set the dev user in `.env.local`, e.g. `VITE_DEV_USER=100:bo:users,bo:users:modify`.
+
+| Script                             | What it does                                                         |
+| ---------------------------------- | -------------------------------------------------------------------- |
+| `npm run infra -- up <service...>` | `../ops/dev.sh up …`: MySQL + Redis + these services in containers   |
+| `npm run infra:up`                 | Infrastructure only (MySQL + Redis)                                  |
+| `npm run infra:ps` / `infra:down`  | Status / stop the stack (data is kept)                               |
+| `npm run infra -- <command>`       | Any `dev.sh` command: `logs <service>`, `build <service>`, `info`, … |
+
+`npm run infra -- up back-office` serves the built app on <http://localhost:8081> (`all` = the whole system). Images are
+built one at a time; give Docker at least 4 GiB if you run the whole stack. Details: the `ops` README.
 
 ## Scripts
 
