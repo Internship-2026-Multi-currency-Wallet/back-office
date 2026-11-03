@@ -17,7 +17,7 @@ import {
   type Theme,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import { config } from '../../config-env';
 import { RequirePermission } from '../permissions/RequirePermission';
 import { usePermissions } from '../permissions/usePermissions';
@@ -114,8 +114,6 @@ function ClientSettings() {
   const { data: settings = [], isLoading, error } = useStaffSettingsQuery();
   const [updateSetting] = useUpdateSettingMutation();
   const [resetSetting] = useResetSettingMutation();
-  const inFlight = useRef(new Set<string>());
-  const [saving, setSaving] = useState<ReadonlySet<string>>(new Set());
   const [notice, setNotice] = useState<Notice | null>(null);
   const [history, setHistory] = useState<string | undefined | null>(null);
 
@@ -126,14 +124,9 @@ function ClientSettings() {
       const problem = validateSettingValue(setting, next);
       if (problem) return setNotice({ key, severity: 'error', message: `${name}: ${problem}` });
     }
-    if (inFlight.current.has(key)) return;
-    inFlight.current.add(key);
-    setSaving(new Set(inFlight.current));
     setNotice((current) => (current?.key === key ? null : current));
     const result =
       next === DEFAULT ? await resetSetting(key) : await updateSetting({ key, value: next });
-    inFlight.current.delete(key);
-    setSaving(new Set(inFlight.current));
     if ('error' in result) {
       return setNotice({ key, severity: 'error', message: result.error?.message ?? 'Not saved' });
     }
@@ -217,11 +210,7 @@ function ClientSettings() {
                     </TableCell>
                     <TableCell>
                       <Stack spacing={0.75}>
-                        <SettingControl
-                          setting={row}
-                          disabled={saving.has(row.key)}
-                          onChange={(value) => apply(row, value)}
-                        />
+                        <SettingControl setting={row} onChange={(value) => apply(row, value)} />
                         {row.overridden && !sameValue(row.value, row.defaultValue) && (
                           <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center' }}>
                             <Typography variant="caption" sx={{ color: 'text.secondary' }}>
@@ -239,7 +228,6 @@ function ClientSettings() {
                           <Button
                             size="small"
                             color="inherit"
-                            disabled={saving.has(row.key)}
                             onClick={() => apply(row, DEFAULT)}
                             aria-label={`Reset to default: ${name}`}
                             sx={{ ...quietButton, color: 'text.secondary', ml: -0.75 }}
@@ -397,7 +385,10 @@ function SettingName({ setting }: { setting: StaffSetting }) {
           </Tooltip>
         )}
       </Stack>
-      <Typography variant="caption" sx={{ fontFamily: monoFont, color: 'text.secondary' }}>
+      <Typography
+        variant="caption"
+        sx={{ fontFamily: monoFont, color: 'text.secondary', overflowWrap: 'anywhere' }}
+      >
         {setting.key.slice(0, dot + 1)}
         <Box component="span" sx={{ color: 'text.primary' }}>
           {setting.key.slice(dot + 1)}

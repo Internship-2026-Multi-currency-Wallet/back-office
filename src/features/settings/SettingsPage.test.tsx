@@ -171,7 +171,9 @@ describe('SettingsPage', () => {
     expect(
       await screen.findByText('Invalid value for "auth.googleLogin": expected boolean'),
     ).toBeInTheDocument();
-    expect(screen.getByRole('switch', { name: 'Google sign-in' })).toBeChecked();
+    await waitFor(() =>
+      expect(screen.getByRole('switch', { name: 'Google sign-in' })).toBeChecked(),
+    );
     expect(within(rowOf('Google sign-in')).getByText('Default')).toBeInTheDocument();
   });
 
@@ -250,12 +252,45 @@ describe('SettingsPage', () => {
       expect(screen.queryByRole('button', { name: 'Undo' })).not.toBeInTheDocument(),
     );
     expect(toggle).toBeChecked();
-    expect(toggle).toBeDisabled();
 
     release();
     expect(await screen.findByRole('button', { name: 'Undo' })).toBeInTheDocument();
-    expect(toggle).toBeEnabled();
     expect(toggle).toBeChecked();
+  });
+
+  it('keeps saves of one setting in order across leaving and reopening the page', async () => {
+    const sent: unknown[] = [];
+    let release = () => {};
+    const firstAnswer = new Promise<void>((resolve) => (release = resolve));
+    server.use(
+      walletCore.mutation('UpdateSetting', async ({ variables }) => {
+        sent.push(variables.value);
+        if (sent.length === 1) await firstAnswer;
+        return HttpResponse.json({
+          data: { updateSetting: mockSettings.update(variables.key, variables.value, '100') },
+        });
+      }),
+    );
+    const user = userEvent.setup();
+    const { router } = renderApp('/settings');
+    await screen.findByText('Google sign-in');
+
+    await user.click(screen.getByRole('switch', { name: 'Google sign-in' }));
+    await router.navigate('/');
+    await router.navigate('/settings');
+    const toggle = await screen.findByRole('switch', { name: 'Google sign-in' });
+    expect(toggle).not.toBeChecked();
+
+    await user.click(toggle);
+    expect(toggle).toBeChecked();
+    expect(sent).toEqual([false]);
+
+    release();
+    await waitFor(() => expect(sent).toEqual([false, true]));
+    await waitFor(() =>
+      expect(mockSettings.list().find((s) => s.key === 'auth.googleLogin')?.value).toBe(true),
+    );
+    expect(screen.getByRole('switch', { name: 'Google sign-in' })).toBeChecked();
   });
 
   it('hides the page and the menu item without bo:settings:modify', async () => {

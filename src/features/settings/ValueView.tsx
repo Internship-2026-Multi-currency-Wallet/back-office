@@ -13,7 +13,9 @@ const token = {
   border: 1,
   borderColor: 'divider',
   bgcolor: 'background.paper',
-  whiteSpace: 'nowrap',
+  whiteSpace: 'normal',
+  overflowWrap: 'anywhere',
+  maxWidth: '100%',
 } as const;
 
 export function ValueView({ value, muted = false }: { value: unknown; muted?: boolean }) {

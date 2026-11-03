@@ -68,23 +68,30 @@ export const settingsApi = api
         UpdateSettingMutation['updateSetting'],
         { key: string; value: unknown }
       >({
-        queryFn: (variables) =>
-          graphqlQuery(
-            async () =>
-              (await request('walletCore', updateSettingMutation, variables)).updateSetting,
+        queryFn: (variables, { getState }) =>
+          afterPreviousWrite(getState, variables.key, () =>
+            graphqlQuery(
+              async () =>
+                (await request('walletCore', updateSettingMutation, variables)).updateSetting,
+            ),
           ),
-        onQueryStarted: ({ key, value }, { dispatch, queryFulfilled }): Promise<void> =>
-          patchSetting(dispatch, queryFulfilled, key, () => ({ value, overridden: true })),
+        onQueryStarted: ({ key, value }, { dispatch, getState, queryFulfilled }): Promise<void> =>
+          patchSetting({ dispatch, getState, queryFulfilled }, key, () => ({
+            value,
+            overridden: true,
+          })),
         invalidatesTags: (_result, _error, { key }) => historyOf(key),
       }),
 
       resetSetting: build.mutation<ResetSettingMutation['resetSetting'], string>({
-        queryFn: (key) =>
-          graphqlQuery(
-            async () => (await request('walletCore', resetSettingMutation, { key })).resetSetting,
+        queryFn: (key, { getState }) =>
+          afterPreviousWrite(getState, key, () =>
+            graphqlQuery(
+              async () => (await request('walletCore', resetSettingMutation, { key })).resetSetting,
+            ),
           ),
-        onQueryStarted: (key, { dispatch, queryFulfilled }): Promise<void> =>
-          patchSetting(dispatch, queryFulfilled, key, (row) => ({
+        onQueryStarted: (key, { dispatch, getState, queryFulfilled }): Promise<void> =>
+          patchSetting({ dispatch, getState, queryFulfilled }, key, (row) => ({
             value: JSON.parse(JSON.stringify(row.defaultValue)),
             overridden: false,
           })),
@@ -102,12 +109,43 @@ export const {
 
 type SettingPatch = Pick<StaffSetting, 'value' | 'overridden'>;
 
+interface KeyWrites {
+  tail: Promise<unknown>;
+  latest: number;
+}
+
+const writesByStore = new WeakMap<object, Map<string, KeyWrites>>();
+
+function writesOf(store: object, key: string): KeyWrites {
+  let keys = writesByStore.get(store);
+  if (!keys) writesByStore.set(store, (keys = new Map()));
+  let writes = keys.get(key);
+  if (!writes) keys.set(key, (writes = { tail: Promise.resolve(), latest: 0 }));
+  return writes;
+}
+
+function afterPreviousWrite<T>(store: object, key: string, send: () => Promise<T>): Promise<T> {
+  const writes = writesOf(store, key);
+  const result = writes.tail.then(send);
+  writes.tail = result.catch(() => undefined);
+  return result;
+}
+
 async function patchSetting(
-  dispatch: AppDispatch,
-  queryFulfilled: Promise<{ data: SettingPatch }>,
+  {
+    dispatch,
+    getState,
+    queryFulfilled,
+  }: {
+    dispatch: AppDispatch;
+    getState: () => unknown;
+    queryFulfilled: Promise<{ data: SettingPatch }>;
+  },
   key: string,
   optimistic: (row: StaffSetting) => SettingPatch,
 ): Promise<void> {
+  const writes = writesOf(getState, key);
+  const write = ++writes.latest;
   const writeRow = (patch: (row: StaffSetting) => SettingPatch) =>
     dispatch(
       settingsApi.util.updateQueryData('staffSettings', undefined, (rows) => {
@@ -115,11 +153,13 @@ async function patchSetting(
         if (row) Object.assign(row, patch(row));
       }),
     );
-  const guess = writeRow(optimistic);
+  writeRow(optimistic);
   try {
     const { data } = await queryFulfilled;
-    writeRow(() => ({ value: data.value, overridden: data.overridden }));
+    if (write === writes.latest) {
+      writeRow(() => ({ value: data.value, overridden: data.overridden }));
+    }
   } catch {
-    guess.undo();
+    if (write === writes.latest) dispatch(settingsApi.util.invalidateTags(['Setting']));
   }
 }

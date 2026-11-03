@@ -50,7 +50,10 @@ export function SettingHistoryDrawer({ settingKey, onClose }: SettingHistoryDraw
             {settingKey ? settingCopy(settingKey).name : 'All settings'}
           </Typography>
           {settingKey && (
-            <Typography variant="caption" sx={{ fontFamily: monoFont, color: 'text.secondary' }}>
+            <Typography
+              variant="caption"
+              sx={{ fontFamily: monoFont, color: 'text.secondary', overflowWrap: 'anywhere' }}
+            >
               {settingKey}
             </Typography>
           )}
@@ -136,7 +139,10 @@ function ChangeEntry({
         {' · '}staff #{change.changedBy}
       </Typography>
       {showKey && (
-        <Typography variant="caption" sx={{ fontFamily: monoFont, color: 'text.secondary' }}>
+        <Typography
+          variant="caption"
+          sx={{ fontFamily: monoFont, color: 'text.secondary', overflowWrap: 'anywhere' }}
+        >
           {change.key}
         </Typography>
       )}
@@ -146,7 +152,13 @@ function ChangeEntry({
         sx={{ mt: 1, alignItems: 'center', flexWrap: 'wrap', gap: 1 }}
         data-testid="change-values"
       >
-        <Box sx={{ textDecoration: 'line-through', textDecorationColor: 'rgba(0,0,0,0.3)' }}>
+        <Box
+          sx={{
+            maxWidth: '100%',
+            textDecoration: 'line-through',
+            textDecorationColor: 'rgba(0,0,0,0.3)',
+          }}
+        >
           <ValueView value={change.oldValue} muted />
         </Box>
         <Typography aria-label="changed to" sx={{ color: 'secondary.main', fontWeight: 700 }}>

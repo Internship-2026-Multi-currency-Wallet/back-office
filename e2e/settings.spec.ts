@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, type Locator, test } from '@playwright/test';
 
 test('staff change a setting in place, see it in the history and reset it (mocks)', async ({
   page,
@@ -26,4 +26,30 @@ test('staff change a setting in place, see it in the history and reset it (mocks
   await page.getByRole('button', { name: 'Reset to default: Google sign-in' }).click();
   await expect(row).toContainText('Default');
   await expect(toggle).toBeChecked();
+});
+
+test('a long list item fits the page and its history on a 360 px screen (mocks)', async ({
+  page,
+}) => {
+  const longItem = 'partner-integration-with-a-very-long-product-identifier-2026-q4';
+  await page.setViewportSize({ width: 360, height: 800 });
+  await page.goto('/settings');
+
+  await page.getByRole('button', { name: 'Add to Enabled products' }).click();
+  await page.getByRole('textbox', { name: 'New item for Enabled products' }).fill(longItem);
+  await page.keyboard.press('Enter');
+  await expect(page.getByText('Enabled products saved')).toBeVisible();
+
+  await page.getByRole('button', { name: 'History of Enabled products' }).click();
+  const latest = page.getByRole('list', { name: 'Changes' }).getByRole('listitem').first();
+  await expect(latest).toContainText(longItem);
+
+  const rightEdge = async (locator: Locator) => {
+    const box = await locator.boundingBox();
+    return box ? box.x + box.width : 0;
+  };
+  await expect.poll(() => rightEdge(page.locator('.MuiDrawer-paper'))).toBeLessThanOrEqual(360);
+  const tokens = await latest.locator('span').all();
+  expect(Math.max(...(await Promise.all(tokens.map(rightEdge))))).toBeLessThanOrEqual(360);
+  expect(await page.evaluate('document.documentElement.scrollWidth - innerWidth')).toBe(0);
 });
