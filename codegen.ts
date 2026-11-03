@@ -10,7 +10,7 @@ const service = (name: string) => ({
   documents: [`src/**/*.${name}.ts`],
   preset: 'client' as const,
   presetConfig: { fragmentMasking: false },
-  config: { useTypeImports: true, enumsAsTypes: true },
+  config: { useTypeImports: true, enumsAsTypes: true, scalars: { DateTime: 'string' } },
 });
 
 const config: CodegenConfig = {

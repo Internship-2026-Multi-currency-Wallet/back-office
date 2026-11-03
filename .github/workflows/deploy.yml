@@ -20,5 +20,5 @@ jobs:
     uses: Internship-2026-Multi-currency-Wallet/ops/.github/workflows/deploy-pages.yml@main
     with:
       host-suffix: '-admin'
-      staging-dev-user: '100:bo:users,bo:users:modify'
+      staging-dev-user: '100:bo:users,bo:users:modify,bo:settings,bo:settings:modify'
     secrets: inherit

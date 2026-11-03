@@ -84,11 +84,11 @@ Vite inlines these values at **build time**; the Docker image takes them as buil
 Every push to `main` / `client/<c>-uat` builds the app in GitHub Actions with that environment's values and uploads
 it to Cloudflare Pages (`.github/workflows/deploy.yml` → `ops/.github/workflows/deploy-pages.yml`). No manual deploys.
 
-| Environment  | Branch              | URL                                           | Build values                                                                             |
-| ------------ | ------------------- | --------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| `staging`    | `main`              | <https://staging-admin.wallet.shatori.com>    | `VITE_APP_ENV=staging`, `VITE_CLIENT=demo`, `VITE_DEV_USER=100:bo:users,bo:users:modify` |
-| `kvitka-uat` | `client/kvitka-uat` | <https://kvitka-uat-admin.wallet.shatori.com> | `VITE_APP_ENV=kvitka-uat`, `VITE_CLIENT=kvitka`, no dev user                             |
-| `wisla-uat`  | `client/wisla-uat`  | <https://wisla-uat-admin.wallet.shatori.com>  | `VITE_APP_ENV=wisla-uat`, `VITE_CLIENT=wisla`, no dev user                               |
+| Environment  | Branch              | URL                                           | Build values                                                                                                            |
+| ------------ | ------------------- | --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `staging`    | `main`              | <https://staging-admin.wallet.shatori.com>    | `VITE_APP_ENV=staging`, `VITE_CLIENT=demo`, `VITE_DEV_USER=100:bo:users,bo:users:modify,bo:settings,bo:settings:modify` |
+| `kvitka-uat` | `client/kvitka-uat` | <https://kvitka-uat-admin.wallet.shatori.com> | `VITE_APP_ENV=kvitka-uat`, `VITE_CLIENT=kvitka`, no dev user                                                            |
+| `wisla-uat`  | `client/wisla-uat`  | <https://wisla-uat-admin.wallet.shatori.com>  | `VITE_APP_ENV=wisla-uat`, `VITE_CLIENT=wisla`, no dev user                                                              |
 
 `VITE_APP_ENV` selects the backend URLs from `ENVIRONMENTS` in `src/config-env.ts`:
 `https://<env>-wallet-core.wallet.shatori.com/graphql`, `https://<env>-rates.wallet.shatori.com/graphql`

@@ -14,6 +14,12 @@ export const routes: RouteObject[] = [
         // Loaded on demand: the DataGrid is large.
         lazy: async () => ({ Component: (await import('../features/users/UsersPage')).UsersPage }),
       },
+      {
+        path: 'settings',
+        lazy: async () => ({
+          Component: (await import('../features/settings/SettingsPage')).SettingsPage,
+        }),
+      },
       { path: '*', element: <NotFoundPage /> },
     ],
   },
