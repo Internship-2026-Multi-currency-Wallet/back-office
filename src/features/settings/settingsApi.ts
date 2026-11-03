@@ -36,8 +36,14 @@ export const settingsApi = api
   .injectEndpoints({
     endpoints: (build) => ({
       staffSettings: build.query<StaffSetting[], void>({
-        queryFn: () =>
-          graphqlQuery(async () => (await request('walletCore', staffSettingsQuery)).staffSettings),
+        queryFn: async (_, { getState }) => {
+          const seen = new Map([...allWrites(getState)].map(([key, w]) => [key, w.latest]));
+          const result = await graphqlQuery(
+            async () => (await request('walletCore', staffSettingsQuery)).staffSettings,
+          );
+          if ('data' in result) overlayWrites(getState, result.data, seen);
+          return result;
+        },
         providesTags: ['Setting'],
       }),
 
@@ -110,21 +116,44 @@ export type SavedSetting = UpdateSettingMutation['updateSetting'] & { previous?:
 
 type WriteResult<T> = { data: T } | { error: GraphQLRequestError };
 
+const REJECTION_CODES = new Set(['INVALID_VALUE', 'UNKNOWN_KEY', 'FORBIDDEN', 'UNAUTHENTICATED']);
+
+export function isRejection(error: { code?: string } | undefined): boolean {
+  return REJECTION_CODES.has(error?.code ?? '');
+}
+
 interface KeyWrites {
   tail: Promise<unknown>;
   latest: number;
   pending: number;
   confirmed?: SettingPatch;
+  optimistic?: SettingPatch;
+  reconcile?: boolean;
 }
 
 const writesByStore = new WeakMap<object, Map<string, KeyWrites>>();
 
-function writesOf(store: object, key: string): KeyWrites {
+function allWrites(store: object): Map<string, KeyWrites> {
   let keys = writesByStore.get(store);
   if (!keys) writesByStore.set(store, (keys = new Map()));
+  return keys;
+}
+
+function writesOf(store: object, key: string): KeyWrites {
+  const keys = allWrites(store);
   let writes = keys.get(key);
   if (!writes) keys.set(key, (writes = { tail: Promise.resolve(), latest: 0, pending: 0 }));
   return writes;
+}
+
+function overlayWrites(store: object, rows: StaffSetting[], seen: Map<string, number>): void {
+  for (const row of rows) {
+    const writes = allWrites(store).get(row.key);
+    if (!writes) continue;
+    const changedMeanwhile = writes.pending > 0 || writes.latest !== seen.get(row.key);
+    const known = writes.pending > 0 ? writes.optimistic : writes.confirmed;
+    if (changedMeanwhile && known) Object.assign(row, known);
+  }
 }
 
 function queuedWrite(
@@ -174,17 +203,26 @@ async function patchSetting(
         JSON.stringify({ value: row.value, overridden: row.overridden }),
       );
     }
-    return optimistic(row);
+    writes.optimistic = optimistic(row);
+    return writes.optimistic;
   });
   try {
     const { data } = await queryFulfilled;
     if (write === writes.latest) {
       writeRow(() => ({ value: data.value, overridden: data.overridden }));
     }
-  } catch {
+  } catch (failure) {
+    if (!isRejection((failure as { error?: GraphQLRequestError }).error)) writes.reconcile = true;
     const { confirmed } = writes;
     if (write === writes.latest && confirmed) writeRow(() => confirmed);
   } finally {
     writes.pending -= 1;
+    if (writes.pending === 0) {
+      writes.optimistic = undefined;
+      if (writes.reconcile) {
+        writes.reconcile = false;
+        dispatch(settingsApi.util.invalidateTags(['Setting']));
+      }
+    }
   }
 }

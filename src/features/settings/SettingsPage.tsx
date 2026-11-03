@@ -26,6 +26,7 @@ import { SETTINGS_PERMISSIONS } from './permissions';
 import { SettingControl } from './SettingControl';
 import { SettingHistoryDrawer } from './SettingHistoryDrawer';
 import {
+  isRejection,
   type StaffSetting,
   useResetSettingMutation,
   useStaffSettingsQuery,
@@ -151,7 +152,14 @@ function ClientSettings() {
       next === DEFAULT ? await resetSetting(key) : await updateSetting({ key, value: next });
     if (!isLatest()) return;
     if ('error' in result) {
-      return show({ key, severity: 'error', message: result.error?.message ?? 'Not saved' });
+      const message = result.error?.message ?? 'Not saved';
+      return show({
+        key,
+        severity: 'error',
+        message: isRejection(result.error)
+          ? message
+          : `Could not confirm ${name} (${message}). Reloading settings…`,
+      });
     }
     const previous = result.data?.previous;
     const restore = previous && (previous.overridden ? previous.value : DEFAULT);
