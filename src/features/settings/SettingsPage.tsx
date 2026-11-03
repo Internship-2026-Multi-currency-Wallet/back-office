@@ -17,7 +17,7 @@ import {
   type Theme,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { config } from '../../config-env';
 import { RequirePermission } from '../permissions/RequirePermission';
 import { usePermissions } from '../permissions/usePermissions';
@@ -116,6 +116,7 @@ function ClientSettings() {
   const [resetSetting] = useResetSettingMutation();
   const [notice, setNotice] = useState<Notice | null>(null);
   const [history, setHistory] = useState<string | undefined | null>(null);
+  const generations = useRef(new Map<string, number>());
 
   const apply = async (setting: StaffSetting, next: unknown, undoable = true) => {
     const { key } = setting;
@@ -124,18 +125,26 @@ function ClientSettings() {
       const problem = validateSettingValue(setting, next);
       if (problem) return setNotice({ key, severity: 'error', message: `${name}: ${problem}` });
     }
+    const generation = (generations.current.get(key) ?? 0) + 1;
+    generations.current.set(key, generation);
+    const isLatest = () => generations.current.get(key) === generation;
     setNotice((current) => (current?.key === key ? null : current));
     const result =
       next === DEFAULT ? await resetSetting(key) : await updateSetting({ key, value: next });
+    if (!isLatest()) return;
     if ('error' in result) {
       return setNotice({ key, severity: 'error', message: result.error?.message ?? 'Not saved' });
     }
-    const previous = setting.overridden ? setting.value : DEFAULT;
+    const previous = result.data?.previous;
+    const restore = previous && (previous.overridden ? previous.value : DEFAULT);
     setNotice({
       key,
       severity: 'success',
       message: next === DEFAULT ? `${name} is back to default` : `${name} saved`,
-      undo: undoable ? () => apply({ ...setting, ...result.data }, previous, false) : undefined,
+      undo:
+        undoable && previous
+          ? () => isLatest() && apply({ ...setting, ...result.data }, restore, false)
+          : undefined,
     });
   };
 

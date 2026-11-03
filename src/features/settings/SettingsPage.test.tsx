@@ -293,6 +293,73 @@ describe('SettingsPage', () => {
     expect(screen.getByRole('switch', { name: 'Google sign-in' })).toBeChecked();
   });
 
+  it('undoes to the confirmed state when an earlier queued save was rejected', async () => {
+    let release = () => {};
+    const firstAnswer = new Promise<void>((resolve) => (release = resolve));
+    let calls = 0;
+    server.use(
+      walletCore.mutation('UpdateSetting', async ({ variables }) => {
+        calls += 1;
+        if (calls === 1) {
+          await firstAnswer;
+          return HttpResponse.json({
+            data: null,
+            errors: [{ message: 'Rejected', extensions: { code: 'INVALID_VALUE' } }],
+          });
+        }
+        return HttpResponse.json({
+          data: { updateSetting: mockSettings.update(variables.key, variables.value, '100') },
+        });
+      }),
+    );
+    const user = userEvent.setup();
+    await openSettings();
+    const toggle = screen.getByRole('switch', { name: 'Google sign-in' });
+
+    await user.click(toggle);
+    await user.click(toggle);
+    release();
+
+    await user.click(await screen.findByRole('button', { name: 'Undo' }));
+
+    await waitFor(() =>
+      expect(within(rowOf('Google sign-in')).getByText('Default')).toBeInTheDocument(),
+    );
+    expect(mockSettings.list().find((s) => s.key === 'auth.googleLogin')).toMatchObject({
+      value: true,
+      overridden: false,
+    });
+    expect(screen.queryByText('Rejected')).not.toBeInTheDocument();
+  });
+
+  it('shows no Undo for a save that a newer save of the same setting replaced', async () => {
+    const releases: (() => void)[] = [];
+    server.use(
+      walletCore.mutation('UpdateSetting', async ({ variables }) => {
+        await new Promise<void>((resolve) => releases.push(resolve));
+        return HttpResponse.json({
+          data: { updateSetting: mockSettings.update(variables.key, variables.value, '100') },
+        });
+      }),
+    );
+    const user = userEvent.setup();
+    await openSettings();
+    const toggle = screen.getByRole('switch', { name: 'Google sign-in' });
+
+    await user.click(toggle);
+    await user.click(toggle);
+    await waitFor(() => expect(releases).toHaveLength(1));
+    releases[0]();
+    await waitFor(() => expect(releases).toHaveLength(2));
+
+    expect(screen.queryByRole('button', { name: 'Undo' })).not.toBeInTheDocument();
+    expect(toggle).toBeChecked();
+
+    releases[1]();
+    expect(await screen.findByRole('button', { name: 'Undo' })).toBeInTheDocument();
+    expect(toggle).toBeChecked();
+  });
+
   it('hides the page and the menu item without bo:settings:modify', async () => {
     server.use(
       walletCore.query('Me', () =>

@@ -1,6 +1,6 @@
 import { api, graphqlQuery } from '../../app/api';
 import type { AppDispatch } from '../../app/store';
-import { request } from '../../graphql/client';
+import { type GraphQLRequestError, request } from '../../graphql/client';
 import type {
   ResetSettingMutation,
   SettingHistoryQuery,
@@ -64,12 +64,9 @@ export const settingsApi = api
         providesTags: (_result, _error, key) => [{ type: 'SettingHistory', id: key ?? ALL }],
       }),
 
-      updateSetting: build.mutation<
-        UpdateSettingMutation['updateSetting'],
-        { key: string; value: unknown }
-      >({
+      updateSetting: build.mutation<SavedSetting, { key: string; value: unknown }>({
         queryFn: (variables, { getState }) =>
-          afterPreviousWrite(getState, variables.key, () =>
+          queuedWrite(getState, variables.key, () =>
             graphqlQuery(
               async () =>
                 (await request('walletCore', updateSettingMutation, variables)).updateSetting,
@@ -83,9 +80,9 @@ export const settingsApi = api
         invalidatesTags: (_result, _error, { key }) => historyOf(key),
       }),
 
-      resetSetting: build.mutation<ResetSettingMutation['resetSetting'], string>({
+      resetSetting: build.mutation<SavedSetting, string>({
         queryFn: (key, { getState }) =>
-          afterPreviousWrite(getState, key, () =>
+          queuedWrite(getState, key, () =>
             graphqlQuery(
               async () => (await request('walletCore', resetSettingMutation, { key })).resetSetting,
             ),
@@ -107,11 +104,16 @@ export const {
   useResetSettingMutation,
 } = settingsApi;
 
-type SettingPatch = Pick<StaffSetting, 'value' | 'overridden'>;
+export type SettingPatch = Pick<StaffSetting, 'value' | 'overridden'>;
+
+export type SavedSetting = UpdateSettingMutation['updateSetting'] & { previous?: SettingPatch };
+
+type WriteResult<T> = { data: T } | { error: GraphQLRequestError };
 
 interface KeyWrites {
   tail: Promise<unknown>;
   latest: number;
+  confirmed?: SettingPatch;
 }
 
 const writesByStore = new WeakMap<object, Map<string, KeyWrites>>();
@@ -124,9 +126,19 @@ function writesOf(store: object, key: string): KeyWrites {
   return writes;
 }
 
-function afterPreviousWrite<T>(store: object, key: string, send: () => Promise<T>): Promise<T> {
+function queuedWrite(
+  store: object,
+  key: string,
+  send: () => Promise<WriteResult<ResetSettingMutation['resetSetting']>>,
+): Promise<WriteResult<SavedSetting>> {
   const writes = writesOf(store, key);
-  const result = writes.tail.then(send);
+  const result = writes.tail.then(async () => {
+    const previous = writes.confirmed;
+    const outcome = await send();
+    if (!('data' in outcome)) return outcome;
+    writes.confirmed = { value: outcome.data.value, overridden: outcome.data.overridden };
+    return { data: { ...outcome.data, previous } };
+  });
   writes.tail = result.catch(() => undefined);
   return result;
 }
@@ -150,7 +162,11 @@ async function patchSetting(
     dispatch(
       settingsApi.util.updateQueryData('staffSettings', undefined, (rows) => {
         const row = rows.find((setting) => setting.key === key);
-        if (row) Object.assign(row, patch(row));
+        if (!row) return;
+        writes.confirmed ??= JSON.parse(
+          JSON.stringify({ value: row.value, overridden: row.overridden }),
+        );
+        Object.assign(row, patch(row));
       }),
     );
   writeRow(optimistic);
