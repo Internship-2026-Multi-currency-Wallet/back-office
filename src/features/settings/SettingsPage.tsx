@@ -17,9 +17,10 @@ import {
   type Theme,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { config } from '../../config-env';
 import { RequirePermission } from '../permissions/RequirePermission';
+import { usePermissions } from '../permissions/usePermissions';
 import { useMeQuery } from '../system/systemApi';
 import { SETTINGS_PERMISSIONS } from './permissions';
 import { SettingControl } from './SettingControl';
@@ -75,6 +76,7 @@ const tableSx = (theme: Theme) => {
 };
 
 interface Notice {
+  key: string;
   severity: 'success' | 'error';
   message: string;
   undo?: () => void;
@@ -90,6 +92,8 @@ export function SettingsPage() {
 
 function NoAccess() {
   const { error } = useMeQuery();
+  const { permissions } = usePermissions();
+  const missing = SETTINGS_PERMISSIONS.filter((permission) => !permissions.includes(permission));
   if (error) {
     return (
       <Alert severity="error">
@@ -99,7 +103,10 @@ function NoAccess() {
     );
   }
   return (
-    <Alert severity="warning">You need the bo:settings:modify permission to manage settings.</Alert>
+    <Alert severity="warning">
+      You need the {missing.join(' and ')} {missing.length > 1 ? 'permissions' : 'permission'} to
+      manage settings.
+    </Alert>
   );
 }
 
@@ -107,6 +114,7 @@ function ClientSettings() {
   const { data: settings = [], isLoading, error } = useStaffSettingsQuery();
   const [updateSetting] = useUpdateSettingMutation();
   const [resetSetting] = useResetSettingMutation();
+  const inFlight = useRef(new Set<string>());
   const [saving, setSaving] = useState<ReadonlySet<string>>(new Set());
   const [notice, setNotice] = useState<Notice | null>(null);
   const [history, setHistory] = useState<string | undefined | null>(null);
@@ -116,21 +124,22 @@ function ClientSettings() {
     const name = settingCopy(key).name;
     if (next !== DEFAULT) {
       const problem = validateSettingValue(setting, next);
-      if (problem) return setNotice({ severity: 'error', message: `${name}: ${problem}` });
+      if (problem) return setNotice({ key, severity: 'error', message: `${name}: ${problem}` });
     }
-    setSaving((keys) => new Set(keys).add(key));
+    if (inFlight.current.has(key)) return;
+    inFlight.current.add(key);
+    setSaving(new Set(inFlight.current));
+    setNotice((current) => (current?.key === key ? null : current));
     const result =
       next === DEFAULT ? await resetSetting(key) : await updateSetting({ key, value: next });
-    setSaving((keys) => {
-      const rest = new Set(keys);
-      rest.delete(key);
-      return rest;
-    });
+    inFlight.current.delete(key);
+    setSaving(new Set(inFlight.current));
     if ('error' in result) {
-      return setNotice({ severity: 'error', message: result.error?.message ?? 'Not saved' });
+      return setNotice({ key, severity: 'error', message: result.error?.message ?? 'Not saved' });
     }
     const previous = setting.overridden ? setting.value : DEFAULT;
     setNotice({
+      key,
       severity: 'success',
       message: next === DEFAULT ? `${name} is back to default` : `${name} saved`,
       undo: undoable ? () => apply({ ...setting, ...result.data }, previous, false) : undefined,

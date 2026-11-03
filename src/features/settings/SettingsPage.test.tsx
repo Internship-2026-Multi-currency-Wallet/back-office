@@ -4,7 +4,7 @@ import { delay, HttpResponse } from 'msw';
 import { graphql } from 'msw/graphql';
 import { config } from '../../config-env';
 import { server } from '../../mocks/server';
-import { resetMockSettings } from '../../mocks/settings';
+import { mockSettings, resetMockSettings } from '../../mocks/settings';
 import { renderApp } from '../../test/render';
 
 const walletCore = graphql.link(config.walletCoreUrl);
@@ -226,6 +226,38 @@ describe('SettingsPage', () => {
     expect(within(latest).getByTestId('change-values')).toHaveTextContent('On→Off');
   });
 
+  it('drops the previous Undo while a newer save of the same setting is pending', async () => {
+    const user = userEvent.setup();
+    await openSettings();
+    const toggle = screen.getByRole('switch', { name: 'Google sign-in' });
+
+    await user.click(toggle);
+    expect(await screen.findByRole('button', { name: 'Undo' })).toBeInTheDocument();
+
+    let release = () => {};
+    const answered = new Promise<void>((resolve) => (release = resolve));
+    server.use(
+      walletCore.mutation('UpdateSetting', async ({ variables }) => {
+        await answered;
+        return HttpResponse.json({
+          data: { updateSetting: mockSettings.update(variables.key, variables.value, '100') },
+        });
+      }),
+    );
+    await user.click(toggle);
+
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: 'Undo' })).not.toBeInTheDocument(),
+    );
+    expect(toggle).toBeChecked();
+    expect(toggle).toBeDisabled();
+
+    release();
+    expect(await screen.findByRole('button', { name: 'Undo' })).toBeInTheDocument();
+    expect(toggle).toBeEnabled();
+    expect(toggle).toBeChecked();
+  });
+
   it('hides the page and the menu item without bo:settings:modify', async () => {
     server.use(
       walletCore.query('Me', () =>
@@ -241,6 +273,22 @@ describe('SettingsPage', () => {
     ).toBeInTheDocument();
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Settings' })).not.toBeInTheDocument();
+  });
+
+  it('names bo:settings when only bo:settings:modify is granted', async () => {
+    server.use(
+      walletCore.query('Me', () =>
+        HttpResponse.json({
+          data: { me: { id: '7', permissions: ['bo:settings:modify'], strategy: 'dev' } },
+        }),
+      ),
+    );
+    renderApp('/settings');
+
+    expect(
+      await screen.findByText('You need the bo:settings permission to manage settings.'),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
   });
 
   it('says "not signed in" when the backend rejects the dev user', async () => {
