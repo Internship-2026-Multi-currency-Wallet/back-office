@@ -2,6 +2,7 @@ import {
   Alert,
   Box,
   Button,
+  CircularProgress,
   LinearProgress,
   Paper,
   Snackbar,
@@ -17,7 +18,7 @@ import {
   type Theme,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import { config } from '../../config-env';
 import { RequirePermission } from '../permissions/RequirePermission';
 import { usePermissions } from '../permissions/usePermissions';
@@ -26,7 +27,6 @@ import { SETTINGS_PERMISSIONS } from './permissions';
 import { SettingControl } from './SettingControl';
 import { SettingHistoryDrawer } from './SettingHistoryDrawer';
 import {
-  isRejection,
   type StaffSetting,
   useResetSettingMutation,
   useStaffSettingsQuery,
@@ -36,6 +36,8 @@ import { sameValue, settingCopy, validateSettingValue } from './settingValue';
 import { monoFont, ValueView } from './ValueView';
 
 const DEFAULT = Symbol('default');
+
+const REJECTIONS = new Set(['INVALID_VALUE', 'UNKNOWN_KEY', 'FORBIDDEN', 'UNAUTHENTICATED']);
 
 let lastNoticeId = 0;
 
@@ -80,10 +82,8 @@ const tableSx = (theme: Theme) => {
 
 interface Notice {
   id: number;
-  key: string;
   severity: 'success' | 'error';
   message: string;
-  undo?: () => void;
 }
 
 export function SettingsPage() {
@@ -129,50 +129,11 @@ function NoAccess() {
 }
 
 function ClientSettings() {
-  const { data: settings = [], isLoading, error } = useStaffSettingsQuery();
-  const [updateSetting] = useUpdateSettingMutation();
-  const [resetSetting] = useResetSettingMutation();
+  const { data: settings = [], isLoading, isFetching, error } = useStaffSettingsQuery();
   const [notice, setNotice] = useState<Notice | null>(null);
   const [history, setHistory] = useState<string | undefined | null>(null);
-  const generations = useRef(new Map<string, number>());
-  const show = (next: Omit<Notice, 'id'>) => setNotice({ ...next, id: ++lastNoticeId });
-
-  const apply = async (setting: StaffSetting, next: unknown, undoable = true) => {
-    const { key } = setting;
-    const name = settingCopy(key).name;
-    if (next !== DEFAULT) {
-      const problem = validateSettingValue(setting, next);
-      if (problem) return show({ key, severity: 'error', message: `${name}: ${problem}` });
-    }
-    const generation = (generations.current.get(key) ?? 0) + 1;
-    generations.current.set(key, generation);
-    const isLatest = () => generations.current.get(key) === generation;
-    setNotice((current) => (current?.key === key ? null : current));
-    const result =
-      next === DEFAULT ? await resetSetting(key) : await updateSetting({ key, value: next });
-    if (!isLatest()) return;
-    if ('error' in result) {
-      const message = result.error?.message ?? 'Not saved';
-      return show({
-        key,
-        severity: 'error',
-        message: isRejection(result.error)
-          ? message
-          : `Could not confirm ${name} (${message}). Reloading settings…`,
-      });
-    }
-    const previous = result.data?.previous;
-    const restore = previous && (previous.overridden ? previous.value : DEFAULT);
-    show({
-      key,
-      severity: 'success',
-      message: next === DEFAULT ? `${name} is back to default` : `${name} saved`,
-      undo:
-        undoable && previous
-          ? () => isLatest() && apply({ ...setting, ...result.data }, restore, false)
-          : undefined,
-    });
-  };
+  const notify = (severity: Notice['severity'], message: string) =>
+    setNotice({ id: ++lastNoticeId, severity, message });
 
   return (
     <Stack spacing={3}>
@@ -236,55 +197,15 @@ function ClientSettings() {
               </TableRow>
             </TableHead>
             <TableBody>
-              {settings.map((row) => {
-                const name = settingCopy(row.key).name;
-                return (
-                  <TableRow key={row.key} className={row.overridden ? 'is-overridden' : undefined}>
-                    <TableCell>
-                      <SettingName setting={row} />
-                    </TableCell>
-                    <TableCell>
-                      <Stack spacing={0.75}>
-                        <SettingControl setting={row} onChange={(value) => apply(row, value)} />
-                        {row.overridden && !sameValue(row.value, row.defaultValue) && (
-                          <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center' }}>
-                            <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                              default
-                            </Typography>
-                            <ValueView value={row.defaultValue} muted />
-                          </Stack>
-                        )}
-                      </Stack>
-                    </TableCell>
-                    <TableCell>
-                      <Stack spacing={0.25} sx={{ alignItems: 'flex-start' }}>
-                        <SourceMark overridden={row.overridden} />
-                        {row.overridden && (
-                          <Button
-                            size="small"
-                            color="inherit"
-                            onClick={() => apply(row, DEFAULT)}
-                            aria-label={`Reset to default: ${name}`}
-                            sx={{ ...quietButton, color: 'text.secondary', ml: -0.75 }}
-                          >
-                            ↺ reset to default
-                          </Button>
-                        )}
-                      </Stack>
-                    </TableCell>
-                    <TableCell align="right">
-                      <Button
-                        size="small"
-                        onClick={() => setHistory(row.key)}
-                        aria-label={`History of ${name}`}
-                        sx={{ ...quietButton, fontWeight: 600 }}
-                      >
-                        History
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
+              {settings.map((row) => (
+                <SettingRow
+                  key={row.key}
+                  setting={row}
+                  refreshing={isFetching}
+                  onNotice={notify}
+                  onHistory={() => setHistory(row.key)}
+                />
+              ))}
             </TableBody>
           </Table>
         </TableContainer>
@@ -306,20 +227,6 @@ function ClientSettings() {
             severity={notice.severity}
             variant="filled"
             onClose={() => setNotice(null)}
-            action={
-              notice.undo && (
-                <Button
-                  color="inherit"
-                  size="small"
-                  onClick={() => {
-                    notice.undo?.();
-                    setNotice(null);
-                  }}
-                >
-                  Undo
-                </Button>
-              )
-            }
             sx={{
               minWidth: { sm: 320 },
               alignItems: 'center',
@@ -334,6 +241,95 @@ function ClientSettings() {
         ) : undefined}
       </Snackbar>
     </Stack>
+  );
+}
+
+interface SettingRowProps {
+  setting: StaffSetting;
+  refreshing: boolean;
+  onNotice: (severity: Notice['severity'], message: string) => void;
+  onHistory: () => void;
+}
+
+function SettingRow({ setting, refreshing, onNotice, onHistory }: SettingRowProps) {
+  const { key } = setting;
+  const name = settingCopy(key).name;
+  const [updateSetting, update] = useUpdateSettingMutation({ fixedCacheKey: `update:${key}` });
+  const [resetSetting, reset] = useResetSettingMutation({ fixedCacheKey: `reset:${key}` });
+  const saving = update.isLoading || reset.isLoading;
+  const busy = saving || refreshing;
+
+  const save = async (next: unknown) => {
+    if (busy) return;
+    if (next !== DEFAULT) {
+      const problem = validateSettingValue(setting, next);
+      if (problem) return onNotice('error', `${name}: ${problem}`);
+    }
+    const result =
+      next === DEFAULT ? await resetSetting(key) : await updateSetting({ key, value: next });
+    if ('error' in result) {
+      const outcome = REJECTIONS.has(result.error?.code ?? '')
+        ? 'was not saved'
+        : 'was not confirmed';
+      return onNotice('error', `${name} ${outcome}: ${result.error?.message ?? 'unknown error'}`);
+    }
+    onNotice('success', next === DEFAULT ? `${name} is back to default` : `${name} saved`);
+  };
+
+  return (
+    <TableRow
+      className={setting.overridden ? 'is-overridden' : undefined}
+      aria-busy={saving || undefined}
+    >
+      <TableCell>
+        <SettingName setting={setting} />
+      </TableCell>
+      <TableCell>
+        <Stack spacing={0.75}>
+          <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+            <SettingControl setting={setting} disabled={busy} onChange={save} />
+            {saving && (
+              <CircularProgress size={16} color="secondary" aria-label={`Saving ${name}`} />
+            )}
+          </Stack>
+          {setting.overridden && !sameValue(setting.value, setting.defaultValue) && (
+            <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center' }}>
+              <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                default
+              </Typography>
+              <ValueView value={setting.defaultValue} muted />
+            </Stack>
+          )}
+        </Stack>
+      </TableCell>
+      <TableCell>
+        <Stack spacing={0.25} sx={{ alignItems: 'flex-start' }}>
+          <SourceMark overridden={setting.overridden} />
+          {setting.overridden && (
+            <Button
+              size="small"
+              color="inherit"
+              disabled={busy}
+              onClick={() => save(DEFAULT)}
+              aria-label={`Reset to default: ${name}`}
+              sx={{ ...quietButton, color: 'text.secondary', ml: -0.75 }}
+            >
+              ↺ reset to default
+            </Button>
+          )}
+        </Stack>
+      </TableCell>
+      <TableCell align="right">
+        <Button
+          size="small"
+          onClick={onHistory}
+          aria-label={`History of ${name}`}
+          sx={{ ...quietButton, fontWeight: 600 }}
+        >
+          History
+        </Button>
+      </TableCell>
+    </TableRow>
   );
 }
 

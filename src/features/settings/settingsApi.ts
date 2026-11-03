@@ -1,6 +1,5 @@
 import { api, graphqlQuery } from '../../app/api';
-import type { AppDispatch } from '../../app/store';
-import { type GraphQLRequestError, request } from '../../graphql/client';
+import { request } from '../../graphql/client';
 import type {
   ResetSettingMutation,
   SettingHistoryQuery,
@@ -36,14 +35,8 @@ export const settingsApi = api
   .injectEndpoints({
     endpoints: (build) => ({
       staffSettings: build.query<StaffSetting[], void>({
-        queryFn: async (_, { getState }) => {
-          const seen = new Map([...allWrites(getState)].map(([key, w]) => [key, w.latest]));
-          const result = await graphqlQuery(
-            async () => (await request('walletCore', staffSettingsQuery)).staffSettings,
-          );
-          if ('data' in result) overlayWrites(getState, result.data, seen);
-          return result;
-        },
+        queryFn: () =>
+          graphqlQuery(async () => (await request('walletCore', staffSettingsQuery)).staffSettings),
         providesTags: ['Setting'],
       }),
 
@@ -70,35 +63,24 @@ export const settingsApi = api
         providesTags: (_result, _error, key) => [{ type: 'SettingHistory', id: key ?? ALL }],
       }),
 
-      updateSetting: build.mutation<SavedSetting, { key: string; value: unknown }>({
-        queryFn: (variables, { getState }) =>
-          queuedWrite(getState, variables.key, () =>
-            graphqlQuery(
-              async () =>
-                (await request('walletCore', updateSettingMutation, variables)).updateSetting,
-            ),
+      updateSetting: build.mutation<
+        UpdateSettingMutation['updateSetting'],
+        { key: string; value: unknown }
+      >({
+        queryFn: (variables) =>
+          graphqlQuery(
+            async () =>
+              (await request('walletCore', updateSettingMutation, variables)).updateSetting,
           ),
-        onQueryStarted: ({ key, value }, { dispatch, getState, queryFulfilled }): Promise<void> =>
-          patchSetting({ dispatch, getState, queryFulfilled }, key, () => ({
-            value,
-            overridden: true,
-          })),
-        invalidatesTags: (_result, _error, { key }) => historyOf(key),
+        invalidatesTags: (_result, _error, { key }) => ['Setting', ...historyOf(key)],
       }),
 
-      resetSetting: build.mutation<SavedSetting, string>({
-        queryFn: (key, { getState }) =>
-          queuedWrite(getState, key, () =>
-            graphqlQuery(
-              async () => (await request('walletCore', resetSettingMutation, { key })).resetSetting,
-            ),
+      resetSetting: build.mutation<ResetSettingMutation['resetSetting'], string>({
+        queryFn: (key) =>
+          graphqlQuery(
+            async () => (await request('walletCore', resetSettingMutation, { key })).resetSetting,
           ),
-        onQueryStarted: (key, { dispatch, getState, queryFulfilled }): Promise<void> =>
-          patchSetting({ dispatch, getState, queryFulfilled }, key, (row) => ({
-            value: JSON.parse(JSON.stringify(row.defaultValue)),
-            overridden: false,
-          })),
-        invalidatesTags: (_result, _error, key) => historyOf(key),
+        invalidatesTags: (_result, _error, key) => ['Setting', ...historyOf(key)],
       }),
     }),
   });
@@ -109,120 +91,3 @@ export const {
   useUpdateSettingMutation,
   useResetSettingMutation,
 } = settingsApi;
-
-export type SettingPatch = Pick<StaffSetting, 'value' | 'overridden'>;
-
-export type SavedSetting = UpdateSettingMutation['updateSetting'] & { previous?: SettingPatch };
-
-type WriteResult<T> = { data: T } | { error: GraphQLRequestError };
-
-const REJECTION_CODES = new Set(['INVALID_VALUE', 'UNKNOWN_KEY', 'FORBIDDEN', 'UNAUTHENTICATED']);
-
-export function isRejection(error: { code?: string } | undefined): boolean {
-  return REJECTION_CODES.has(error?.code ?? '');
-}
-
-interface KeyWrites {
-  tail: Promise<unknown>;
-  latest: number;
-  pending: number;
-  confirmed?: SettingPatch;
-  optimistic?: SettingPatch;
-  reconcile?: boolean;
-}
-
-const writesByStore = new WeakMap<object, Map<string, KeyWrites>>();
-
-function allWrites(store: object): Map<string, KeyWrites> {
-  let keys = writesByStore.get(store);
-  if (!keys) writesByStore.set(store, (keys = new Map()));
-  return keys;
-}
-
-function writesOf(store: object, key: string): KeyWrites {
-  const keys = allWrites(store);
-  let writes = keys.get(key);
-  if (!writes) keys.set(key, (writes = { tail: Promise.resolve(), latest: 0, pending: 0 }));
-  return writes;
-}
-
-function overlayWrites(store: object, rows: StaffSetting[], seen: Map<string, number>): void {
-  for (const row of rows) {
-    const writes = allWrites(store).get(row.key);
-    if (!writes) continue;
-    const changedMeanwhile = writes.pending > 0 || writes.latest !== seen.get(row.key);
-    const known = writes.pending > 0 ? writes.optimistic : writes.confirmed;
-    if (changedMeanwhile && known) Object.assign(row, known);
-  }
-}
-
-function queuedWrite(
-  store: object,
-  key: string,
-  send: () => Promise<WriteResult<ResetSettingMutation['resetSetting']>>,
-): Promise<WriteResult<SavedSetting>> {
-  const writes = writesOf(store, key);
-  const result = writes.tail.then(async () => {
-    const previous = writes.confirmed;
-    const outcome = await send();
-    if (!('data' in outcome)) return outcome;
-    writes.confirmed = { value: outcome.data.value, overridden: outcome.data.overridden };
-    return { data: { ...outcome.data, previous } };
-  });
-  writes.tail = result.catch(() => undefined);
-  return result;
-}
-
-async function patchSetting(
-  {
-    dispatch,
-    getState,
-    queryFulfilled,
-  }: {
-    dispatch: AppDispatch;
-    getState: () => unknown;
-    queryFulfilled: Promise<{ data: SettingPatch }>;
-  },
-  key: string,
-  optimistic: (row: StaffSetting) => SettingPatch,
-): Promise<void> {
-  const writes = writesOf(getState, key);
-  const write = ++writes.latest;
-  const startsSequence = writes.pending === 0;
-  writes.pending += 1;
-  const writeRow = (patch: (row: StaffSetting) => SettingPatch) =>
-    dispatch(
-      settingsApi.util.updateQueryData('staffSettings', undefined, (rows) => {
-        const row = rows.find((setting) => setting.key === key);
-        if (row) Object.assign(row, patch(row));
-      }),
-    );
-  writeRow((row) => {
-    if (startsSequence) {
-      writes.confirmed = JSON.parse(
-        JSON.stringify({ value: row.value, overridden: row.overridden }),
-      );
-    }
-    writes.optimistic = optimistic(row);
-    return writes.optimistic;
-  });
-  try {
-    const { data } = await queryFulfilled;
-    if (write === writes.latest) {
-      writeRow(() => ({ value: data.value, overridden: data.overridden }));
-    }
-  } catch (failure) {
-    if (!isRejection((failure as { error?: GraphQLRequestError }).error)) writes.reconcile = true;
-    const { confirmed } = writes;
-    if (write === writes.latest && confirmed) writeRow(() => confirmed);
-  } finally {
-    writes.pending -= 1;
-    if (writes.pending === 0) {
-      writes.optimistic = undefined;
-      if (writes.reconcile) {
-        writes.reconcile = false;
-        dispatch(settingsApi.util.invalidateTags(['Setting']));
-      }
-    }
-  }
-}

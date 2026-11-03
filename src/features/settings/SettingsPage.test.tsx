@@ -1,12 +1,11 @@
 import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { delay, HttpResponse } from 'msw';
+import { HttpResponse } from 'msw';
 import { graphql } from 'msw/graphql';
 import { config } from '../../config-env';
 import { server } from '../../mocks/server';
 import { mockSettings, resetMockSettings } from '../../mocks/settings';
 import { renderApp } from '../../test/render';
-import { settingsApi } from './settingsApi';
 
 const walletCore = graphql.link(config.walletCoreUrl);
 
@@ -48,21 +47,106 @@ describe('SettingsPage', () => {
     expect(within(phone).getByText('Overridden')).toBeInTheDocument();
   });
 
-  it('saves a switch right away and can undo it', async () => {
+  it('saves a switch and then shows the value from the server', async () => {
     const user = userEvent.setup();
     await openSettings();
 
     await user.click(screen.getByRole('switch', { name: 'Google sign-in' }));
 
     expect(await screen.findByText('Google sign-in saved')).toBeInTheDocument();
-    expect(screen.getByRole('switch', { name: 'Google sign-in' })).not.toBeChecked();
-    expect(within(rowOf('Google sign-in')).getByText('Overridden')).toBeInTheDocument();
-
-    await user.click(screen.getByRole('button', { name: 'Undo' }));
     await waitFor(() =>
-      expect(within(rowOf('Google sign-in')).getByText('Default')).toBeInTheDocument(),
+      expect(screen.getByRole('switch', { name: 'Google sign-in' })).not.toBeChecked(),
+    );
+    expect(within(rowOf('Google sign-in')).getByText('Overridden')).toBeInTheDocument();
+  });
+
+  it('blocks a setting while its save is pending, also after reopening the page', async () => {
+    let release = () => {};
+    const answer = new Promise<void>((resolve) => (release = resolve));
+    let calls = 0;
+    server.use(
+      walletCore.mutation('UpdateSetting', async ({ variables }) => {
+        calls += 1;
+        await answer;
+        return HttpResponse.json({
+          data: { updateSetting: mockSettings.update(variables.key, variables.value, '100') },
+        });
+      }),
+    );
+    const user = userEvent.setup();
+    const { router } = renderApp('/settings');
+    await screen.findByText('Google sign-in');
+
+    await user.click(screen.getByRole('switch', { name: 'Google sign-in' }));
+    expect(await screen.findByLabelText('Saving Google sign-in')).toBeInTheDocument();
+    expect(screen.getByRole('switch', { name: 'Google sign-in' })).toBeDisabled();
+    expect(
+      within(rowOf('Phone number required')).getByRole('button', { name: 'signup' }),
+    ).toBeEnabled();
+
+    await router.navigate('/');
+    await screen.findByRole('heading', { name: 'Back-office' });
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+    await router.navigate('/settings');
+    expect(await screen.findByLabelText('Saving Google sign-in')).toBeInTheDocument();
+    const reopened = screen.getByRole('switch', { name: 'Google sign-in' });
+    expect(reopened).toBeDisabled();
+    await user.click(reopened).catch(() => undefined);
+
+    release();
+    await waitFor(() =>
+      expect(screen.getByRole('switch', { name: 'Google sign-in' })).toBeEnabled(),
+    );
+    expect(screen.getByRole('switch', { name: 'Google sign-in' })).not.toBeChecked();
+    expect(calls).toBe(1);
+  });
+
+  it('shows the backend error when a value is rejected and keeps the server value', async () => {
+    server.use(
+      walletCore.mutation('UpdateSetting', () =>
+        HttpResponse.json({
+          data: null,
+          errors: [
+            {
+              message: 'Invalid value for "auth.googleLogin": expected boolean',
+              extensions: { code: 'INVALID_VALUE' },
+            },
+          ],
+        }),
+      ),
+    );
+    const user = userEvent.setup();
+    await openSettings();
+
+    await user.click(screen.getByRole('switch', { name: 'Google sign-in' }));
+
+    expect(
+      await screen.findByText(/Invalid value for "auth.googleLogin": expected boolean/),
+    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByRole('switch', { name: 'Google sign-in' })).toBeEnabled(),
     );
     expect(screen.getByRole('switch', { name: 'Google sign-in' })).toBeChecked();
+    expect(within(rowOf('Google sign-in')).getByText('Default')).toBeInTheDocument();
+  });
+
+  it('shows what the server has when the answer to a save is lost', async () => {
+    server.use(
+      walletCore.mutation('UpdateSetting', ({ variables }) => {
+        mockSettings.update(variables.key, variables.value, '100');
+        return HttpResponse.error();
+      }),
+    );
+    const user = userEvent.setup();
+    await openSettings();
+
+    await user.click(screen.getByRole('switch', { name: 'Google sign-in' }));
+
+    expect(await screen.findByText(/Google sign-in was not confirmed/)).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByRole('switch', { name: 'Google sign-in' })).not.toBeChecked(),
+    );
+    expect(within(rowOf('Google sign-in')).getByText('Overridden')).toBeInTheDocument();
   });
 
   it('hides the "default" hint when the override equals the default', async () => {
@@ -131,22 +215,6 @@ describe('SettingsPage', () => {
     );
   });
 
-  it('shows a change before the server answers', async () => {
-    server.use(
-      walletCore.mutation('UpdateSetting', async () => {
-        await delay('infinite');
-        return HttpResponse.json({ data: null });
-      }),
-    );
-    const user = userEvent.setup();
-    await openSettings();
-
-    await user.click(screen.getByRole('switch', { name: 'Google sign-in' }));
-
-    expect(screen.getByRole('switch', { name: 'Google sign-in' })).not.toBeChecked();
-    expect(within(rowOf('Google sign-in')).getByText('Overridden')).toBeInTheDocument();
-  });
-
   it('adds and removes list items in place and refuses duplicates', async () => {
     const user = userEvent.setup();
     await openSettings();
@@ -169,65 +237,6 @@ describe('SettingsPage', () => {
     await waitFor(() =>
       expect(within(rowOf('Enabled products')).queryByText('exchange')).not.toBeInTheDocument(),
     );
-  });
-
-  it('shows the backend error when a value is rejected and keeps the old value', async () => {
-    let fetches = 0;
-    server.use(
-      walletCore.query('StaffSettings', () => {
-        fetches += 1;
-        return undefined;
-      }),
-      walletCore.mutation('UpdateSetting', () =>
-        HttpResponse.json({
-          data: null,
-          errors: [
-            {
-              message: 'Invalid value for "auth.googleLogin": expected boolean',
-              extensions: { code: 'INVALID_VALUE' },
-            },
-          ],
-        }),
-      ),
-    );
-    const user = userEvent.setup();
-    await openSettings();
-
-    await user.click(screen.getByRole('switch', { name: 'Google sign-in' }));
-
-    expect(
-      await screen.findByText('Invalid value for "auth.googleLogin": expected boolean'),
-    ).toBeInTheDocument();
-    await waitFor(() =>
-      expect(screen.getByRole('switch', { name: 'Google sign-in' })).toBeChecked(),
-    );
-    expect(within(rowOf('Google sign-in')).getByText('Default')).toBeInTheDocument();
-    expect(fetches).toBe(1);
-  });
-
-  it('reloads the settings when the answer to a save is lost', async () => {
-    let fetches = 0;
-    server.use(
-      walletCore.query('StaffSettings', () => {
-        fetches += 1;
-        return undefined;
-      }),
-      walletCore.mutation('UpdateSetting', ({ variables }) => {
-        mockSettings.update(variables.key, variables.value, '100');
-        return HttpResponse.error();
-      }),
-    );
-    const user = userEvent.setup();
-    await openSettings();
-
-    await user.click(screen.getByRole('switch', { name: 'Google sign-in' }));
-
-    expect(await screen.findByText(/Could not confirm Google sign-in/)).toBeInTheDocument();
-    await waitFor(() =>
-      expect(screen.getByRole('switch', { name: 'Google sign-in' })).not.toBeChecked(),
-    );
-    expect(within(rowOf('Google sign-in')).getByText('Overridden')).toBeInTheDocument();
-    expect(fetches).toBe(2);
   });
 
   it('resets an override to the default', async () => {
@@ -333,198 +342,6 @@ describe('SettingsPage', () => {
     expect(within(latest).getByTestId('change-values')).toHaveTextContent('On→Off');
   });
 
-  it('drops the previous Undo while a newer save of the same setting is pending', async () => {
-    const user = userEvent.setup();
-    await openSettings();
-    const toggle = screen.getByRole('switch', { name: 'Google sign-in' });
-
-    await user.click(toggle);
-    expect(await screen.findByRole('button', { name: 'Undo' })).toBeInTheDocument();
-
-    let release = () => {};
-    const answered = new Promise<void>((resolve) => (release = resolve));
-    server.use(
-      walletCore.mutation('UpdateSetting', async ({ variables }) => {
-        await answered;
-        return HttpResponse.json({
-          data: { updateSetting: mockSettings.update(variables.key, variables.value, '100') },
-        });
-      }),
-    );
-    await user.click(toggle);
-
-    await waitFor(() =>
-      expect(screen.queryByRole('button', { name: 'Undo' })).not.toBeInTheDocument(),
-    );
-    expect(toggle).toBeChecked();
-
-    release();
-    expect(await screen.findByRole('button', { name: 'Undo' })).toBeInTheDocument();
-    expect(toggle).toBeChecked();
-  });
-
-  it('keeps saves of one setting in order across leaving and reopening the page', async () => {
-    const sent: unknown[] = [];
-    let release = () => {};
-    const firstAnswer = new Promise<void>((resolve) => (release = resolve));
-    server.use(
-      walletCore.mutation('UpdateSetting', async ({ variables }) => {
-        sent.push(variables.value);
-        if (sent.length === 1) await firstAnswer;
-        return HttpResponse.json({
-          data: { updateSetting: mockSettings.update(variables.key, variables.value, '100') },
-        });
-      }),
-    );
-    const user = userEvent.setup();
-    const { router } = renderApp('/settings');
-    await screen.findByText('Google sign-in');
-
-    await user.click(screen.getByRole('switch', { name: 'Google sign-in' }));
-    await router.navigate('/');
-    await router.navigate('/settings');
-    const toggle = await screen.findByRole('switch', { name: 'Google sign-in' });
-    expect(toggle).not.toBeChecked();
-
-    await user.click(toggle);
-    expect(toggle).toBeChecked();
-    expect(sent).toEqual([false]);
-
-    release();
-    await waitFor(() => expect(sent).toEqual([false, true]));
-    await waitFor(() =>
-      expect(mockSettings.list().find((s) => s.key === 'auth.googleLogin')?.value).toBe(true),
-    );
-    expect(screen.getByRole('switch', { name: 'Google sign-in' })).toBeChecked();
-  });
-
-  it('undoes to the confirmed state when an earlier queued save was rejected', async () => {
-    let release = () => {};
-    const firstAnswer = new Promise<void>((resolve) => (release = resolve));
-    let calls = 0;
-    server.use(
-      walletCore.mutation('UpdateSetting', async ({ variables }) => {
-        calls += 1;
-        if (calls === 1) {
-          await firstAnswer;
-          return HttpResponse.json({
-            data: null,
-            errors: [{ message: 'Rejected', extensions: { code: 'INVALID_VALUE' } }],
-          });
-        }
-        return HttpResponse.json({
-          data: { updateSetting: mockSettings.update(variables.key, variables.value, '100') },
-        });
-      }),
-    );
-    const user = userEvent.setup();
-    await openSettings();
-    const toggle = screen.getByRole('switch', { name: 'Google sign-in' });
-
-    await user.click(toggle);
-    await user.click(toggle);
-    release();
-
-    await user.click(await screen.findByRole('button', { name: 'Undo' }));
-
-    await waitFor(() =>
-      expect(within(rowOf('Google sign-in')).getByText('Default')).toBeInTheDocument(),
-    );
-    expect(mockSettings.list().find((s) => s.key === 'auth.googleLogin')).toMatchObject({
-      value: true,
-      overridden: false,
-    });
-    expect(screen.queryByText('Rejected')).not.toBeInTheDocument();
-  });
-
-  it('shows no Undo for a save that a newer save of the same setting replaced', async () => {
-    const releases: (() => void)[] = [];
-    server.use(
-      walletCore.mutation('UpdateSetting', async ({ variables }) => {
-        await new Promise<void>((resolve) => releases.push(resolve));
-        return HttpResponse.json({
-          data: { updateSetting: mockSettings.update(variables.key, variables.value, '100') },
-        });
-      }),
-    );
-    const user = userEvent.setup();
-    await openSettings();
-    const toggle = screen.getByRole('switch', { name: 'Google sign-in' });
-
-    await user.click(toggle);
-    await user.click(toggle);
-    await waitFor(() => expect(releases).toHaveLength(1));
-    releases[0]();
-    await waitFor(() => expect(releases).toHaveLength(2));
-
-    expect(screen.queryByRole('button', { name: 'Undo' })).not.toBeInTheDocument();
-    expect(toggle).toBeChecked();
-
-    releases[1]();
-    expect(await screen.findByRole('button', { name: 'Undo' })).toBeInTheDocument();
-    expect(toggle).toBeChecked();
-  });
-
-  it('undoes to the value shown before the save after the cache was dropped and changed elsewhere', async () => {
-    const user = userEvent.setup();
-    const { store, router } = renderApp('/settings');
-    await screen.findByText('Google sign-in');
-
-    await user.click(screen.getByRole('switch', { name: 'Google sign-in' }));
-    await screen.findByText('Google sign-in saved');
-
-    await router.navigate('/');
-    store.dispatch(settingsApi.util.resetApiState());
-    mockSettings.update('auth.googleLogin', true, '200');
-    await router.navigate('/settings');
-
-    const toggle = await screen.findByRole('switch', { name: 'Google sign-in' });
-    expect(toggle).toBeChecked();
-    await user.click(toggle);
-    await user.click(await screen.findByRole('button', { name: 'Undo' }));
-
-    await waitFor(() =>
-      expect(mockSettings.list().find((s) => s.key === 'auth.googleLogin')).toMatchObject({
-        value: true,
-        overridden: true,
-      }),
-    );
-    await waitFor(() => expect(toggle).toBeChecked());
-  });
-
-  it('keeps a pending save of one setting when a save of another setting fails', async () => {
-    let release = () => {};
-    const phoneAnswer = new Promise<void>((resolve) => (release = resolve));
-    server.use(
-      walletCore.mutation('UpdateSetting', async ({ variables }) => {
-        if (variables.key === 'auth.googleLogin') {
-          return HttpResponse.json({
-            data: null,
-            errors: [{ message: 'Rejected', extensions: { code: 'INVALID_VALUE' } }],
-          });
-        }
-        await phoneAnswer;
-        return HttpResponse.json({
-          data: { updateSetting: mockSettings.update(variables.key, variables.value, '100') },
-        });
-      }),
-    );
-    const user = userEvent.setup();
-    await openSettings();
-    const signup = () =>
-      within(rowOf('Phone number required')).getByRole('button', { name: 'signup' });
-
-    await user.click(signup());
-    await user.click(screen.getByRole('switch', { name: 'Google sign-in' }));
-    await screen.findByText('Rejected');
-
-    expect(signup()).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByRole('switch', { name: 'Google sign-in' })).toBeChecked();
-    release();
-    await screen.findByText('Phone number required saved');
-    expect(signup()).toHaveAttribute('aria-pressed', 'true');
-  });
-
   it('removes only the clicked item of a list with duplicates', async () => {
     const sent: unknown[] = [];
     server.use(
@@ -598,76 +415,6 @@ describe('SettingsPage', () => {
 
     expect(screen.queryByRole('textbox', { name: 'New item for Enabled products' })).toBeNull();
     expect(within(rowOf('Enabled products')).queryByText('typo')).not.toBeInTheDocument();
-  });
-
-  it('still shows a pending change after the page was reopened without its cache', async () => {
-    const sent: unknown[] = [];
-    let release = () => {};
-    const firstAnswer = new Promise<void>((resolve) => (release = resolve));
-    server.use(
-      walletCore.mutation('UpdateSetting', async ({ variables }) => {
-        sent.push(variables.value);
-        if (sent.length === 1) await firstAnswer;
-        return HttpResponse.json({
-          data: { updateSetting: mockSettings.update(variables.key, variables.value, '100') },
-        });
-      }),
-    );
-    vi.useFakeTimers({ shouldAdvanceTime: true });
-    try {
-      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-      const { store, router } = renderApp('/settings');
-      await screen.findByText('Google sign-in');
-
-      await user.click(screen.getByRole('switch', { name: 'Google sign-in' }));
-      await router.navigate('/');
-      await screen.findByRole('heading', { name: 'Back-office' });
-      act(() => vi.advanceTimersByTime(61_000));
-      expect(store.getState().api.queries['staffSettings(undefined)']).toBeUndefined();
-      await router.navigate('/settings');
-
-      const toggle = await screen.findByRole('switch', { name: 'Google sign-in' });
-      expect(toggle).not.toBeChecked();
-      await user.click(toggle);
-      release();
-
-      await waitFor(() => expect(sent).toEqual([false, true]));
-      await waitFor(() =>
-        expect(mockSettings.list().find((s) => s.key === 'auth.googleLogin')?.value).toBe(true),
-      );
-      expect(screen.getByRole('switch', { name: 'Google sign-in' })).toBeChecked();
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it('does not let a reload that started before a save overwrite the saved value', async () => {
-    let fetches = 0;
-    let release = () => {};
-    const slowAnswer = new Promise<void>((resolve) => (release = resolve));
-    server.use(
-      walletCore.query('StaffSettings', async () => {
-        fetches += 1;
-        if (fetches === 1) return undefined;
-        const snapshot = mockSettings.list();
-        await slowAnswer;
-        return HttpResponse.json({ data: { staffSettings: snapshot } });
-      }),
-    );
-    const user = userEvent.setup();
-    const { store } = renderApp('/settings');
-    const toggle = await screen.findByRole('switch', { name: 'Google sign-in' });
-    const settingsQuery = () => store.getState().api.queries['staffSettings(undefined)'];
-
-    store.dispatch(settingsApi.util.invalidateTags(['Setting']));
-    await waitFor(() => expect(fetches).toBe(2));
-    await user.click(toggle);
-    await screen.findByText('Google sign-in saved');
-    release();
-
-    await waitFor(() => expect(settingsQuery()?.status).toBe('fulfilled'));
-    expect(screen.getByRole('switch', { name: 'Google sign-in' })).not.toBeChecked();
-    expect(within(rowOf('Google sign-in')).getByText('Overridden')).toBeInTheDocument();
   });
 
   it('hides the page and the menu item without bo:settings:modify', async () => {

@@ -15,9 +15,10 @@ import { monoFont } from './ValueView';
 interface SettingControlProps {
   setting: StaffSetting;
   onChange: (value: unknown) => void;
+  disabled?: boolean;
 }
 
-export function SettingControl({ setting, onChange }: SettingControlProps) {
+export function SettingControl({ setting, onChange, disabled = false }: SettingControlProps) {
   const name = settingCopy(setting.key).name;
 
   switch (setting.type) {
@@ -28,6 +29,7 @@ export function SettingControl({ setting, onChange }: SettingControlProps) {
           <Switch
             checked={on}
             onChange={(event) => onChange(event.target.checked)}
+            disabled={disabled}
             color="secondary"
             slotProps={{ input: { 'aria-label': name } }}
           />
@@ -47,6 +49,7 @@ export function SettingControl({ setting, onChange }: SettingControlProps) {
           size="small"
           color="secondary"
           value={setting.value}
+          disabled={disabled}
           onChange={(_, next: string | null) => next !== null && onChange(next)}
           aria-label={name}
           sx={{ flexWrap: 'wrap' }}
@@ -76,6 +79,7 @@ export function SettingControl({ setting, onChange }: SettingControlProps) {
           name={name}
           items={Array.isArray(setting.value) ? setting.value.map(String) : []}
           onChange={onChange}
+          disabled={disabled}
         />
       );
   }
@@ -87,10 +91,12 @@ function ListControl({
   name,
   items,
   onChange,
+  disabled,
 }: {
   name: string;
   items: string[];
   onChange: (items: string[]) => void;
+  disabled: boolean;
 }) {
   const [draft, setDraft] = useState<string | null>(null);
   const item = draft?.trim() ?? '';
@@ -114,6 +120,7 @@ function ListControl({
           label={entry}
           size="small"
           variant="outlined"
+          disabled={disabled}
           onDelete={() => onChange(items.filter((_, other) => other !== index))}
           sx={{ ...chipSx, bgcolor: 'background.paper' }}
         />
@@ -122,6 +129,7 @@ function ListControl({
         <Chip
           label="+ add"
           size="small"
+          disabled={disabled}
           onClick={() => setDraft('')}
           aria-label={`Add to ${name}`}
           sx={{
