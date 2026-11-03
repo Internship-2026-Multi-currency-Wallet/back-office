@@ -18,7 +18,8 @@ import {
   type Theme,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
+import { useAppDispatch, useAppSelector } from '../../app/store';
 import { config } from '../../config-env';
 import { RequirePermission } from '../permissions/RequirePermission';
 import { usePermissions } from '../permissions/usePermissions';
@@ -26,20 +27,18 @@ import { useMeQuery } from '../system/systemApi';
 import { SETTINGS_PERMISSIONS } from './permissions';
 import { SettingControl } from './SettingControl';
 import { SettingHistoryDrawer } from './SettingHistoryDrawer';
+import { type StaffSetting, useStaffSettingsQuery } from './settingsApi';
 import {
-  type StaffSetting,
-  useResetSettingMutation,
-  useStaffSettingsQuery,
-  useUpdateSettingMutation,
-} from './settingsApi';
+  type DisplayedSetting,
+  displayedSettings,
+  noticeClosed,
+  saveSetting,
+  type SettingState,
+  showSettingNotice,
+  undoSetting,
+} from './settingWrites';
 import { sameValue, settingCopy, validateSettingValue } from './settingValue';
 import { monoFont, ValueView } from './ValueView';
-
-const DEFAULT = Symbol('default');
-
-const REJECTIONS = new Set(['INVALID_VALUE', 'UNKNOWN_KEY', 'FORBIDDEN', 'UNAUTHENTICATED']);
-
-let lastNoticeId = 0;
 
 const srOnly = {
   position: 'absolute',
@@ -47,6 +46,14 @@ const srOnly = {
   height: '1px',
   overflow: 'hidden',
   clip: 'rect(0 0 0 0)',
+} as const;
+
+const FRESH = {
+  refetchOnMountOrArgChange: true,
+  refetchOnFocus: true,
+  refetchOnReconnect: true,
+  pollingInterval: 30_000,
+  skipPollingIfUnfocused: true,
 } as const;
 
 const quietButton = { px: 0.75, minWidth: 0, fontSize: 12.5, textTransform: 'none' } as const;
@@ -79,12 +86,6 @@ const tableSx = (theme: Theme) => {
     },
   } as const;
 };
-
-interface Notice {
-  id: number;
-  severity: 'success' | 'error';
-  message: string;
-}
 
 export function SettingsPage() {
   return (
@@ -129,11 +130,23 @@ function NoAccess() {
 }
 
 function ClientSettings() {
-  const { data: settings = [], isLoading, isFetching, error } = useStaffSettingsQuery();
-  const [notice, setNotice] = useState<Notice | null>(null);
+  const { data, isLoading, isFetching, error, refetch } = useStaffSettingsQuery(undefined, FRESH);
+  const writes = useAppSelector((state) => state.settingWrites);
+  const dispatch = useAppDispatch();
+  const settings = useMemo(() => (data ? displayedSettings(data, writes) : []), [data, writes]);
   const [history, setHistory] = useState<string | undefined | null>(null);
-  const notify = (severity: Notice['severity'], message: string) =>
-    setNotice({ id: ++lastNoticeId, severity, message });
+  const { notice } = writes;
+
+  const change = (setting: StaffSetting, next: SettingState) => {
+    if (next.overridden) {
+      const problem = validateSettingValue(setting, next.value);
+      if (problem) {
+        const message = `${settingCopy(setting.key).name}: ${problem}`;
+        return dispatch(showSettingNotice({ key: setting.key, severity: 'error', message }));
+      }
+    }
+    void dispatch(saveSetting(setting.key, next));
+  };
 
   return (
     <Stack spacing={3}>
@@ -177,11 +190,22 @@ function ClientSettings() {
         </Button>
       </Stack>
 
-      {!isLoading && !error && <OverrideMeter settings={settings} />}
-      {error && <Alert severity="error">Could not load settings: {error.message}</Alert>}
+      {data && <OverrideMeter settings={settings} />}
+      {error && (
+        <Alert
+          severity={data ? 'warning' : 'error'}
+          action={
+            <Button color="inherit" size="small" onClick={() => refetch()} disabled={isFetching}>
+              Retry
+            </Button>
+          }
+        >
+          {data ? 'Could not refresh settings' : 'Could not load settings'}: {error.message}
+        </Alert>
+      )}
 
       {isLoading && <LinearProgress color="secondary" aria-label="Loading settings" />}
-      {!isLoading && !error && (
+      {data && (
         <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2 }}>
           <Table sx={tableSx}>
             <TableHead>
@@ -201,8 +225,7 @@ function ClientSettings() {
                 <SettingRow
                   key={row.key}
                   setting={row}
-                  refreshing={isFetching}
-                  onNotice={notify}
+                  onChange={(next) => change(row, next)}
                   onHistory={() => setHistory(row.key)}
                 />
               ))}
@@ -219,14 +242,30 @@ function ClientSettings() {
         key={notice?.id}
         open={notice !== null}
         autoHideDuration={notice?.severity === 'error' ? 8000 : 5000}
-        onClose={(_, reason) => reason !== 'clickaway' && setNotice(null)}
+        onClose={(_, reason) =>
+          reason !== 'clickaway' && notice && dispatch(noticeClosed(notice.id))
+        }
         anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
       >
         {notice ? (
           <Alert
             severity={notice.severity}
             variant="filled"
-            onClose={() => setNotice(null)}
+            onClose={() => dispatch(noticeClosed(notice.id))}
+            action={
+              notice.undo && (
+                <Button
+                  color="inherit"
+                  size="small"
+                  onClick={() => {
+                    dispatch(noticeClosed(notice.id));
+                    if (notice.undo) void dispatch(undoSetting(notice.key, notice.undo));
+                  }}
+                >
+                  Undo
+                </Button>
+              )
+            }
             sx={{
               minWidth: { sm: 320 },
               alignItems: 'center',
@@ -245,41 +284,18 @@ function ClientSettings() {
 }
 
 interface SettingRowProps {
-  setting: StaffSetting;
-  refreshing: boolean;
-  onNotice: (severity: Notice['severity'], message: string) => void;
+  setting: DisplayedSetting;
+  onChange: (next: SettingState) => void;
   onHistory: () => void;
 }
 
-function SettingRow({ setting, refreshing, onNotice, onHistory }: SettingRowProps) {
-  const { key } = setting;
-  const name = settingCopy(key).name;
-  const [updateSetting, update] = useUpdateSettingMutation({ fixedCacheKey: `update:${key}` });
-  const [resetSetting, reset] = useResetSettingMutation({ fixedCacheKey: `reset:${key}` });
-  const saving = update.isLoading || reset.isLoading;
-  const busy = saving || refreshing;
-
-  const save = async (next: unknown) => {
-    if (busy) return;
-    if (next !== DEFAULT) {
-      const problem = validateSettingValue(setting, next);
-      if (problem) return onNotice('error', `${name}: ${problem}`);
-    }
-    const result =
-      next === DEFAULT ? await resetSetting(key) : await updateSetting({ key, value: next });
-    if ('error' in result) {
-      const outcome = REJECTIONS.has(result.error?.code ?? '')
-        ? 'was not saved'
-        : 'was not confirmed';
-      return onNotice('error', `${name} ${outcome}: ${result.error?.message ?? 'unknown error'}`);
-    }
-    onNotice('success', next === DEFAULT ? `${name} is back to default` : `${name} saved`);
-  };
+function SettingRow({ setting, onChange, onHistory }: SettingRowProps) {
+  const name = settingCopy(setting.key).name;
 
   return (
     <TableRow
       className={setting.overridden ? 'is-overridden' : undefined}
-      aria-busy={saving || undefined}
+      aria-busy={setting.saving || undefined}
     >
       <TableCell>
         <SettingName setting={setting} />
@@ -287,8 +303,11 @@ function SettingRow({ setting, refreshing, onNotice, onHistory }: SettingRowProp
       <TableCell>
         <Stack spacing={0.75}>
           <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-            <SettingControl setting={setting} disabled={busy} onChange={save} />
-            {saving && (
+            <SettingControl
+              setting={setting}
+              onChange={(value) => onChange({ value, overridden: true })}
+            />
+            {setting.saving && (
               <CircularProgress size={16} color="secondary" aria-label={`Saving ${name}`} />
             )}
           </Stack>
@@ -309,8 +328,7 @@ function SettingRow({ setting, refreshing, onNotice, onHistory }: SettingRowProp
             <Button
               size="small"
               color="inherit"
-              disabled={busy}
-              onClick={() => save(DEFAULT)}
+              onClick={() => onChange({ value: setting.defaultValue, overridden: false })}
               aria-label={`Reset to default: ${name}`}
               sx={{ ...quietButton, color: 'text.secondary', ml: -0.75 }}
             >

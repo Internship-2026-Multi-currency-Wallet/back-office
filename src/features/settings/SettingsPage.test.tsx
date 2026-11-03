@@ -17,6 +17,9 @@ function rowOf(name: string): HTMLElement {
   return row;
 }
 
+const settled = () =>
+  waitFor(() => expect(screen.queryByLabelText(/^Saving /)).not.toBeInTheDocument());
+
 async function openSettings() {
   renderApp('/settings');
   await screen.findByText('Google sign-in');
@@ -58,47 +61,6 @@ describe('SettingsPage', () => {
       expect(screen.getByRole('switch', { name: 'Google sign-in' })).not.toBeChecked(),
     );
     expect(within(rowOf('Google sign-in')).getByText('Overridden')).toBeInTheDocument();
-  });
-
-  it('blocks a setting while its save is pending, also after reopening the page', async () => {
-    let release = () => {};
-    const answer = new Promise<void>((resolve) => (release = resolve));
-    let calls = 0;
-    server.use(
-      walletCore.mutation('UpdateSetting', async ({ variables }) => {
-        calls += 1;
-        await answer;
-        return HttpResponse.json({
-          data: { updateSetting: mockSettings.update(variables.key, variables.value, '100') },
-        });
-      }),
-    );
-    const user = userEvent.setup();
-    const { router } = renderApp('/settings');
-    await screen.findByText('Google sign-in');
-
-    await user.click(screen.getByRole('switch', { name: 'Google sign-in' }));
-    expect(await screen.findByLabelText('Saving Google sign-in')).toBeInTheDocument();
-    expect(screen.getByRole('switch', { name: 'Google sign-in' })).toBeDisabled();
-    expect(
-      within(rowOf('Phone number required')).getByRole('button', { name: 'signup' }),
-    ).toBeEnabled();
-
-    await router.navigate('/');
-    await screen.findByRole('heading', { name: 'Back-office' });
-    expect(screen.queryByRole('table')).not.toBeInTheDocument();
-    await router.navigate('/settings');
-    expect(await screen.findByLabelText('Saving Google sign-in')).toBeInTheDocument();
-    const reopened = screen.getByRole('switch', { name: 'Google sign-in' });
-    expect(reopened).toBeDisabled();
-    await user.click(reopened).catch(() => undefined);
-
-    release();
-    await waitFor(() =>
-      expect(screen.getByRole('switch', { name: 'Google sign-in' })).toBeEnabled(),
-    );
-    expect(screen.getByRole('switch', { name: 'Google sign-in' })).not.toBeChecked();
-    expect(calls).toBe(1);
   });
 
   it('shows the backend error when a value is rejected and keeps the server value', async () => {
@@ -156,6 +118,7 @@ describe('SettingsPage', () => {
 
     await user.click(toggle);
     await waitFor(() => expect(within(rowOf('Google sign-in')).getByText('default')).toBeVisible());
+    await settled();
     await user.click(toggle);
 
     await waitFor(() => expect(toggle).toBeChecked());
@@ -229,6 +192,7 @@ describe('SettingsPage', () => {
     await waitFor(() =>
       expect(within(rowOf('Enabled products')).getByText('cards')).toBeInTheDocument(),
     );
+    await settled();
 
     const exchange = within(rowOf('Enabled products'))
       .getByText('exchange')

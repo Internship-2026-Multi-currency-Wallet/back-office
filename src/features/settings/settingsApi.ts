@@ -15,6 +15,19 @@ import {
 
 export type StaffSetting = StaffSettingsQuery['staffSettings'][number];
 export type SettingChange = SettingHistoryQuery['settingHistory'][number];
+export type SavedSetting = UpdateSettingMutation['updateSetting'];
+
+export interface SettingsSnapshot {
+  rows: StaffSetting[];
+  observedAt: number;
+}
+
+let clock = 0;
+
+export function nextMoment(): number {
+  clock += 1;
+  return clock;
+}
 
 interface HistoryCursor {
   before?: string;
@@ -34,9 +47,14 @@ export const settingsApi = api
   .enhanceEndpoints({ addTagTypes: ['Setting', 'SettingHistory'] })
   .injectEndpoints({
     endpoints: (build) => ({
-      staffSettings: build.query<StaffSetting[], void>({
-        queryFn: () =>
-          graphqlQuery(async () => (await request('walletCore', staffSettingsQuery)).staffSettings),
+      staffSettings: build.query<SettingsSnapshot, void>({
+        queryFn: () => {
+          const observedAt = nextMoment();
+          return graphqlQuery(async () => ({
+            rows: (await request('walletCore', staffSettingsQuery)).staffSettings,
+            observedAt,
+          }));
+        },
         providesTags: ['Setting'],
       }),
 
@@ -63,16 +81,13 @@ export const settingsApi = api
         providesTags: (_result, _error, key) => [{ type: 'SettingHistory', id: key ?? ALL }],
       }),
 
-      updateSetting: build.mutation<
-        UpdateSettingMutation['updateSetting'],
-        { key: string; value: unknown }
-      >({
+      updateSetting: build.mutation<SavedSetting, { key: string; value: unknown }>({
         queryFn: (variables) =>
           graphqlQuery(
             async () =>
               (await request('walletCore', updateSettingMutation, variables)).updateSetting,
           ),
-        invalidatesTags: (_result, _error, { key }) => ['Setting', ...historyOf(key)],
+        invalidatesTags: (_result, _error, { key }) => historyOf(key),
       }),
 
       resetSetting: build.mutation<ResetSettingMutation['resetSetting'], string>({
@@ -80,14 +95,9 @@ export const settingsApi = api
           graphqlQuery(
             async () => (await request('walletCore', resetSettingMutation, { key })).resetSetting,
           ),
-        invalidatesTags: (_result, _error, key) => ['Setting', ...historyOf(key)],
+        invalidatesTags: (_result, _error, key) => historyOf(key),
       }),
     }),
   });
 
-export const {
-  useStaffSettingsQuery,
-  useSettingHistoryInfiniteQuery,
-  useUpdateSettingMutation,
-  useResetSettingMutation,
-} = settingsApi;
+export const { useStaffSettingsQuery, useSettingHistoryInfiniteQuery } = settingsApi;

@@ -28,7 +28,7 @@ test('staff change a setting in place, see it in the history and reset it (mocks
   await expect(toggle).toBeChecked();
 });
 
-test('a long list item fits the page and its history on a 360 px screen (mocks)', async ({
+test('a long list item fits the editor, the page and its history on a 360 px screen (mocks)', async ({
   page,
 }) => {
   const longItem = 'partner-integration-with-a-very-long-product-identifier-2026-q4';
@@ -39,6 +39,19 @@ test('a long list item fits the page and its history on a 360 px screen (mocks)'
   await page.getByRole('textbox', { name: 'New item for Enabled products' }).fill(longItem);
   await page.keyboard.press('Enter');
   await expect(page.getByText('Enabled products saved')).toBeVisible();
+
+  const label = page
+    .getByRole('row')
+    .filter({ hasText: 'products.enabled' })
+    .locator('.MuiChip-label', { hasText: longItem });
+  const box = (await label.boundingBox())!;
+  expect(box.x + box.width).toBeLessThanOrEqual(360);
+  const clipped = await label.evaluate(
+    (element: { scrollWidth: number; clientWidth: number }) =>
+      element.scrollWidth - element.clientWidth,
+  );
+  expect(clipped).toBe(0);
+  expect(await page.evaluate('document.documentElement.scrollWidth - innerWidth')).toBe(0);
 
   await page.getByRole('button', { name: 'History of Enabled products' }).click();
   const latest = page.getByRole('list', { name: 'Changes' }).getByRole('listitem').first();

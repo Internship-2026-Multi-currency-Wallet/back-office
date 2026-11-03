@@ -1,3 +1,4 @@
+import { setupListeners } from '@reduxjs/toolkit/query';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { createBrowserRouter, RouterProvider } from 'react-router';
@@ -16,6 +17,7 @@ async function enableMocks(): Promise<void> {
 await enableMocks();
 
 const store = createStore();
+setupListeners(store.dispatch);
 const router = createBrowserRouter(routes);
 
 createRoot(document.getElementById('root')!).render(
