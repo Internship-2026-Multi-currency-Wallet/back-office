@@ -108,13 +108,13 @@ function ListControl({
 
   return (
     <Stack direction="row" useFlexGap sx={{ flexWrap: 'wrap', gap: 0.75, alignItems: 'center' }}>
-      {items.map((entry) => (
+      {items.map((entry, index) => (
         <Chip
-          key={entry}
+          key={index}
           label={entry}
           size="small"
           variant="outlined"
-          onDelete={() => onChange(items.filter((other) => other !== entry))}
+          onDelete={() => onChange(items.filter((_, other) => other !== index))}
           sx={{ ...chipSx, bgcolor: 'background.paper' }}
         />
       ))}

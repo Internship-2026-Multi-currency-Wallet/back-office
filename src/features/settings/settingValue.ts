@@ -30,14 +30,10 @@ export function validateSettingValue(setting: ValueRules, value: unknown): strin
       return typeof value === 'string' && (setting.allowedValues ?? []).includes(value)
         ? null
         : `Must be one of: ${(setting.allowedValues ?? []).join(', ')}.`;
-    case 'STRING_LIST': {
-      if (!Array.isArray(value) || !value.every((item) => typeof item === 'string')) {
-        return 'Must be a list of text values.';
-      }
-      if (value.some((item) => item.trim() === '')) return 'Items must not be empty.';
-      if (new Set(value).size !== value.length) return 'Items must be unique.';
-      return null;
-    }
+    case 'STRING_LIST':
+      return Array.isArray(value) && value.every((item) => typeof item === 'string')
+        ? null
+        : 'Must be a list of text values.';
   }
 }
 

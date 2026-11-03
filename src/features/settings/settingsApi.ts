@@ -113,6 +113,7 @@ type WriteResult<T> = { data: T } | { error: GraphQLRequestError };
 interface KeyWrites {
   tail: Promise<unknown>;
   latest: number;
+  pending: number;
   confirmed?: SettingPatch;
 }
 
@@ -122,7 +123,7 @@ function writesOf(store: object, key: string): KeyWrites {
   let keys = writesByStore.get(store);
   if (!keys) writesByStore.set(store, (keys = new Map()));
   let writes = keys.get(key);
-  if (!writes) keys.set(key, (writes = { tail: Promise.resolve(), latest: 0 }));
+  if (!writes) keys.set(key, (writes = { tail: Promise.resolve(), latest: 0, pending: 0 }));
   return writes;
 }
 
@@ -158,24 +159,32 @@ async function patchSetting(
 ): Promise<void> {
   const writes = writesOf(getState, key);
   const write = ++writes.latest;
+  const startsSequence = writes.pending === 0;
+  writes.pending += 1;
   const writeRow = (patch: (row: StaffSetting) => SettingPatch) =>
     dispatch(
       settingsApi.util.updateQueryData('staffSettings', undefined, (rows) => {
         const row = rows.find((setting) => setting.key === key);
-        if (!row) return;
-        writes.confirmed ??= JSON.parse(
-          JSON.stringify({ value: row.value, overridden: row.overridden }),
-        );
-        Object.assign(row, patch(row));
+        if (row) Object.assign(row, patch(row));
       }),
     );
-  writeRow(optimistic);
+  writeRow((row) => {
+    if (startsSequence) {
+      writes.confirmed = JSON.parse(
+        JSON.stringify({ value: row.value, overridden: row.overridden }),
+      );
+    }
+    return optimistic(row);
+  });
   try {
     const { data } = await queryFulfilled;
     if (write === writes.latest) {
       writeRow(() => ({ value: data.value, overridden: data.overridden }));
     }
   } catch {
-    if (write === writes.latest) dispatch(settingsApi.util.invalidateTags(['Setting']));
+    const { confirmed } = writes;
+    if (write === writes.latest && confirmed) writeRow(() => confirmed);
+  } finally {
+    writes.pending -= 1;
   }
 }

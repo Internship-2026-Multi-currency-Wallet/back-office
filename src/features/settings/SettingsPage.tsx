@@ -36,6 +36,8 @@ import { monoFont, ValueView } from './ValueView';
 
 const DEFAULT = Symbol('default');
 
+let lastNoticeId = 0;
+
 const srOnly = {
   position: 'absolute',
   width: '1px',
@@ -76,6 +78,7 @@ const tableSx = (theme: Theme) => {
 };
 
 interface Notice {
+  id: number;
   key: string;
   severity: 'success' | 'error';
   message: string;
@@ -91,14 +94,28 @@ export function SettingsPage() {
 }
 
 function NoAccess() {
-  const { error } = useMeQuery();
+  const { error, refetch, isFetching } = useMeQuery();
   const { permissions } = usePermissions();
   const missing = SETTINGS_PERMISSIONS.filter((permission) => !permissions.includes(permission));
-  if (error) {
+  if (error?.code === 'UNAUTHENTICATED') {
     return (
       <Alert severity="error">
-        Not signed in ({error.code ?? error.message}). Check VITE_DEV_USER and that wallet-core runs
-        with DEV_AUTH=true.
+        Not signed in (UNAUTHENTICATED). Check VITE_DEV_USER and that wallet-core runs with
+        DEV_AUTH=true.
+      </Alert>
+    );
+  }
+  if (error) {
+    return (
+      <Alert
+        severity="error"
+        action={
+          <Button color="inherit" size="small" onClick={() => refetch()} disabled={isFetching}>
+            Retry
+          </Button>
+        }
+      >
+        Could not load your profile: {error.message}
       </Alert>
     );
   }
@@ -117,13 +134,14 @@ function ClientSettings() {
   const [notice, setNotice] = useState<Notice | null>(null);
   const [history, setHistory] = useState<string | undefined | null>(null);
   const generations = useRef(new Map<string, number>());
+  const show = (next: Omit<Notice, 'id'>) => setNotice({ ...next, id: ++lastNoticeId });
 
   const apply = async (setting: StaffSetting, next: unknown, undoable = true) => {
     const { key } = setting;
     const name = settingCopy(key).name;
     if (next !== DEFAULT) {
       const problem = validateSettingValue(setting, next);
-      if (problem) return setNotice({ key, severity: 'error', message: `${name}: ${problem}` });
+      if (problem) return show({ key, severity: 'error', message: `${name}: ${problem}` });
     }
     const generation = (generations.current.get(key) ?? 0) + 1;
     generations.current.set(key, generation);
@@ -133,11 +151,11 @@ function ClientSettings() {
       next === DEFAULT ? await resetSetting(key) : await updateSetting({ key, value: next });
     if (!isLatest()) return;
     if ('error' in result) {
-      return setNotice({ key, severity: 'error', message: result.error?.message ?? 'Not saved' });
+      return show({ key, severity: 'error', message: result.error?.message ?? 'Not saved' });
     }
     const previous = result.data?.previous;
     const restore = previous && (previous.overridden ? previous.value : DEFAULT);
-    setNotice({
+    show({
       key,
       severity: 'success',
       message: next === DEFAULT ? `${name} is back to default` : `${name} saved`,
@@ -269,6 +287,7 @@ function ClientSettings() {
       )}
 
       <Snackbar
+        key={notice?.id}
         open={notice !== null}
         autoHideDuration={notice?.severity === 'error' ? 8000 : 5000}
         onClose={(_, reason) => reason !== 'clickaway' && setNotice(null)}
@@ -294,7 +313,7 @@ function ClientSettings() {
               )
             }
             sx={{
-              minWidth: 320,
+              minWidth: { sm: 320 },
               alignItems: 'center',
               ...(notice.severity === 'success' && {
                 bgcolor: 'primary.main',

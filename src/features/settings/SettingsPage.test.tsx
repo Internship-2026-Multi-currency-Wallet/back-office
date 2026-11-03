@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { delay, HttpResponse } from 'msw';
 import { graphql } from 'msw/graphql';
@@ -6,6 +6,7 @@ import { config } from '../../config-env';
 import { server } from '../../mocks/server';
 import { mockSettings, resetMockSettings } from '../../mocks/settings';
 import { renderApp } from '../../test/render';
+import { settingsApi } from './settingsApi';
 
 const walletCore = graphql.link(config.walletCoreUrl);
 
@@ -76,6 +77,27 @@ describe('SettingsPage', () => {
     await waitFor(() => expect(toggle).toBeChecked());
     expect(within(rowOf('Google sign-in')).getByText('Overridden')).toBeInTheDocument();
     expect(within(rowOf('Google sign-in')).queryByText('default')).not.toBeInTheDocument();
+  });
+
+  it('gives a new toast its full time even if it replaces another one', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      await openSettings();
+
+      await user.click(screen.getByRole('switch', { name: 'Google sign-in' }));
+      await screen.findByText('Google sign-in saved');
+      act(() => vi.advanceTimersByTime(4000));
+      await user.click(
+        within(rowOf('Phone number required')).getByRole('button', { name: 'signup' }),
+      );
+      await screen.findByText('Phone number required saved');
+      act(() => vi.advanceTimersByTime(3000));
+
+      expect(screen.getByText('Phone number required saved')).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('picks an enum value in place', async () => {
@@ -201,7 +223,7 @@ describe('SettingsPage', () => {
 
     await user.click(screen.getByRole('button', { name: 'History of Phone number required' }));
     const changes = await screen.findByRole('list', { name: 'Changes' });
-    const entries = within(changes).getAllByRole('listitem');
+    const entries = await within(changes).findAllByRole('listitem');
 
     expect(entries).toHaveLength(2);
     expect(entries[0]).toHaveTextContent('staff #100');
@@ -215,6 +237,58 @@ describe('SettingsPage', () => {
     expect(within(entries[1]).getByTestId('change-values')).toHaveTextContent('never→signup');
   });
 
+  it('loads older changes with the keyset cursor, without gaps or repeats', async () => {
+    const minute = (id: number) =>
+      new Date(Date.UTC(2026, 9, 1, 0, Math.floor((id + 1) / 2))).toISOString();
+    mockSettings.seedHistory(
+      Array.from({ length: 25 }, (_, index) => {
+        const id = 25 - index;
+        return {
+          id: String(id),
+          key: 'auth.googleLogin',
+          oldValue: id % 2 === 0,
+          newValue: id % 2 !== 0,
+          changedBy: '100',
+          changedAt: minute(id),
+        };
+      }),
+    );
+    const requests: Record<string, unknown>[] = [];
+    server.use(
+      walletCore.query('SettingHistory', ({ variables }) => {
+        requests.push(variables);
+        return undefined;
+      }),
+    );
+    const user = userEvent.setup();
+    await openSettings();
+
+    await user.click(screen.getByRole('button', { name: 'History of Google sign-in' }));
+    const changes = await screen.findByRole('list', { name: 'Changes' });
+    expect(await within(changes).findAllByRole('listitem')).toHaveLength(20);
+
+    await user.click(screen.getByRole('button', { name: 'Load older changes' }));
+
+    await waitFor(() => expect(within(changes).getAllByRole('listitem')).toHaveLength(25));
+    expect(requests[1]).toMatchObject({ before: minute(6), beforeId: '6' });
+    expect(screen.queryByRole('button', { name: 'Load older changes' })).not.toBeInTheDocument();
+  });
+
+  it('shows the key of every entry in the history of all settings', async () => {
+    const user = userEvent.setup();
+    await openSettings();
+
+    await user.click(screen.getByRole('button', { name: 'All changes' }));
+
+    expect(await screen.findByRole('heading', { name: 'All settings' })).toBeInTheDocument();
+    const entries = await within(screen.getByRole('list', { name: 'Changes' })).findAllByRole(
+      'listitem',
+    );
+    expect(entries).toHaveLength(5);
+    expect(entries[0]).toHaveTextContent('products.enabled');
+    expect(entries[4]).toHaveTextContent('auth.googleLogin');
+  });
+
   it('records a new change in the history', async () => {
     const user = userEvent.setup();
     await openSettings();
@@ -224,7 +298,7 @@ describe('SettingsPage', () => {
 
     await user.click(screen.getByRole('button', { name: 'History of Google sign-in' }));
     const changes = await screen.findByRole('list', { name: 'Changes' });
-    const [latest] = within(changes).getAllByRole('listitem');
+    const [latest] = await within(changes).findAllByRole('listitem');
     expect(within(latest).getByTestId('change-values')).toHaveTextContent('On→Off');
   });
 
@@ -360,6 +434,141 @@ describe('SettingsPage', () => {
     expect(toggle).toBeChecked();
   });
 
+  it('undoes to the value shown before the save after the cache was dropped and changed elsewhere', async () => {
+    const user = userEvent.setup();
+    const { store, router } = renderApp('/settings');
+    await screen.findByText('Google sign-in');
+
+    await user.click(screen.getByRole('switch', { name: 'Google sign-in' }));
+    await screen.findByText('Google sign-in saved');
+
+    await router.navigate('/');
+    store.dispatch(settingsApi.util.resetApiState());
+    mockSettings.update('auth.googleLogin', true, '200');
+    await router.navigate('/settings');
+
+    const toggle = await screen.findByRole('switch', { name: 'Google sign-in' });
+    expect(toggle).toBeChecked();
+    await user.click(toggle);
+    await user.click(await screen.findByRole('button', { name: 'Undo' }));
+
+    await waitFor(() =>
+      expect(mockSettings.list().find((s) => s.key === 'auth.googleLogin')).toMatchObject({
+        value: true,
+        overridden: true,
+      }),
+    );
+    await waitFor(() => expect(toggle).toBeChecked());
+  });
+
+  it('keeps a pending save of one setting when a save of another setting fails', async () => {
+    let release = () => {};
+    const phoneAnswer = new Promise<void>((resolve) => (release = resolve));
+    server.use(
+      walletCore.mutation('UpdateSetting', async ({ variables }) => {
+        if (variables.key === 'auth.googleLogin') {
+          return HttpResponse.json({
+            data: null,
+            errors: [{ message: 'Rejected', extensions: { code: 'INVALID_VALUE' } }],
+          });
+        }
+        await phoneAnswer;
+        return HttpResponse.json({
+          data: { updateSetting: mockSettings.update(variables.key, variables.value, '100') },
+        });
+      }),
+    );
+    const user = userEvent.setup();
+    await openSettings();
+    const signup = () =>
+      within(rowOf('Phone number required')).getByRole('button', { name: 'signup' });
+
+    await user.click(signup());
+    await user.click(screen.getByRole('switch', { name: 'Google sign-in' }));
+    await screen.findByText('Rejected');
+
+    expect(signup()).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('switch', { name: 'Google sign-in' })).toBeChecked();
+    release();
+    await screen.findByText('Phone number required saved');
+    expect(signup()).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('removes only the clicked item of a list with duplicates', async () => {
+    const sent: unknown[] = [];
+    server.use(
+      walletCore.query('StaffSettings', () =>
+        HttpResponse.json({
+          data: {
+            staffSettings: mockSettings
+              .list()
+              .map((s) =>
+                s.key === 'products.enabled' ? { ...s, value: ['wallet', 'wallet'] } : s,
+              ),
+          },
+        }),
+      ),
+      walletCore.mutation('UpdateSetting', ({ variables }) => {
+        sent.push(variables.value);
+        return HttpResponse.json({
+          data: { updateSetting: mockSettings.update(variables.key, variables.value, '100') },
+        });
+      }),
+    );
+    const user = userEvent.setup();
+    await openSettings();
+
+    const [first] = within(rowOf('Enabled products')).getAllByTestId('CancelIcon');
+    await user.click(first);
+
+    await waitFor(() => expect(sent).toEqual([['wallet']]));
+  });
+
+  it('adds an item to a list that already holds duplicates', async () => {
+    const sent: unknown[] = [];
+    server.use(
+      walletCore.query('StaffSettings', () =>
+        HttpResponse.json({
+          data: {
+            staffSettings: mockSettings
+              .list()
+              .map((s) =>
+                s.key === 'products.enabled' ? { ...s, value: ['wallet', 'wallet'] } : s,
+              ),
+          },
+        }),
+      ),
+      walletCore.mutation('UpdateSetting', ({ variables }) => {
+        sent.push(variables.value);
+        return HttpResponse.json({
+          data: { updateSetting: mockSettings.update(variables.key, variables.value, '100') },
+        });
+      }),
+    );
+    const user = userEvent.setup();
+    await openSettings();
+
+    await user.click(screen.getByRole('button', { name: 'Add to Enabled products' }));
+    await user.type(
+      screen.getByRole('textbox', { name: 'New item for Enabled products' }),
+      'cards{Enter}',
+    );
+
+    await waitFor(() => expect(sent).toEqual([['wallet', 'wallet', 'cards']]));
+  });
+
+  it('discards a typed list item on Escape', async () => {
+    const user = userEvent.setup();
+    await openSettings();
+
+    await user.click(screen.getByRole('button', { name: 'Add to Enabled products' }));
+    await user.type(screen.getByRole('textbox', { name: 'New item for Enabled products' }), 'typo');
+    await user.keyboard('{Escape}');
+
+    expect(screen.queryByRole('textbox', { name: 'New item for Enabled products' })).toBeNull();
+    expect(within(rowOf('Enabled products')).queryByText('typo')).not.toBeInTheDocument();
+  });
+
   it('hides the page and the menu item without bo:settings:modify', async () => {
     server.use(
       walletCore.query('Me', () =>
@@ -406,6 +615,22 @@ describe('SettingsPage', () => {
 
     expect(await screen.findByText(/Not signed in \(UNAUTHENTICATED\)/)).toBeInTheDocument();
     expect(screen.queryByText(/You need the bo:settings:modify/)).not.toBeInTheDocument();
+  });
+
+  it('offers a retry when the profile cannot be loaded for another reason', async () => {
+    let networkDown = true;
+    server.use(walletCore.query('Me', () => (networkDown ? HttpResponse.error() : undefined)));
+    const user = userEvent.setup();
+    renderApp('/settings');
+
+    expect(await screen.findByText(/Could not load your profile/)).toBeInTheDocument();
+    expect(screen.queryByText(/Not signed in/)).not.toBeInTheDocument();
+
+    const retry = screen.getByRole('button', { name: 'Retry' });
+    await waitFor(() => expect(retry).toBeEnabled());
+    networkDown = false;
+    await user.click(retry);
+    expect(await screen.findByText('Google sign-in')).toBeInTheDocument();
   });
 
   it('shows the menu item to staff with the permission', async () => {

@@ -13,13 +13,12 @@ describe('validateSettingValue', () => {
     expect(validateSettingValue(rules, 'sometimes')).toBe('Must be one of: signup, never.');
   });
 
-  it('accepts a list of unique, non-empty strings for STRING_LIST', () => {
+  it('accepts any list of strings for STRING_LIST, like the backend', () => {
     const rules = { type: 'STRING_LIST', allowedValues: null } as const;
     expect(validateSettingValue(rules, [])).toBeNull();
-    expect(validateSettingValue(rules, ['wallet', 'exchange'])).toBeNull();
+    expect(validateSettingValue(rules, ['wallet', 'wallet'])).toBeNull();
     expect(validateSettingValue(rules, ['wallet', 1])).toMatch(/list of text/);
-    expect(validateSettingValue(rules, ['wallet', ' '])).toMatch(/empty/);
-    expect(validateSettingValue(rules, ['wallet', 'wallet'])).toMatch(/unique/);
+    expect(validateSettingValue(rules, 'wallet')).toMatch(/list of text/);
   });
 });
 
