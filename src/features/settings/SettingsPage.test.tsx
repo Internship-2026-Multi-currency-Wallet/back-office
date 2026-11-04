@@ -10,9 +10,9 @@ import { renderApp } from '../../test/render';
 const walletCore = graphql.link(config.walletCoreUrl);
 
 function rowOf(name: string): HTMLElement {
-  const row = within(screen.getByRole('table', { hidden: true }))
+  const row = within(screen.getByRole('grid', { hidden: true }))
     .getByText(name)
-    .closest<HTMLElement>('tr');
+    .closest<HTMLElement>('[role="row"]');
   if (!row) throw new Error(`No row for ${name}`);
   return row;
 }
@@ -394,7 +394,7 @@ describe('SettingsPage', () => {
     expect(
       await screen.findByText(/You need the bo:settings:modify permission/),
     ).toBeInTheDocument();
-    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+    expect(screen.queryByRole('grid')).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Settings' })).not.toBeInTheDocument();
   });
 
@@ -411,7 +411,7 @@ describe('SettingsPage', () => {
     expect(
       await screen.findByText('You need the bo:settings permission to manage settings.'),
     ).toBeInTheDocument();
-    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+    expect(screen.queryByRole('grid')).not.toBeInTheDocument();
   });
 
   it('says "not signed in" when the backend rejects the dev user', async () => {

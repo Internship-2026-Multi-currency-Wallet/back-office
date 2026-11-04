@@ -66,3 +66,25 @@ test('a long list item fits the editor, the page and its history on a 360 px scr
   expect(Math.max(...(await Promise.all(tokens.map(rightEdge))))).toBeLessThanOrEqual(360);
   expect(await page.evaluate('document.documentElement.scrollWidth - innerWidth')).toBe(0);
 });
+
+test('controls inside the grid keep their keyboard behaviour (mocks)', async ({ page }) => {
+  await page.goto('/settings');
+
+  const toggle = page.getByRole('switch', { name: 'Google sign-in' });
+  await toggle.focus();
+  await page.keyboard.press('Space');
+  await expect(toggle).not.toBeChecked();
+  await expect(page.getByText('Google sign-in saved')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Add to Enabled products' }).click();
+  const input = page.getByRole('textbox', { name: 'New item for Enabled products' });
+  await input.pressSequentially('gift cards');
+  await page.keyboard.press('ArrowLeft');
+  await page.keyboard.press('ArrowLeft');
+  await page.keyboard.type('x');
+  await expect(input).toHaveValue('gift carxds');
+  await page.keyboard.press('Enter');
+
+  const row = page.getByRole('row').filter({ hasText: 'products.enabled' });
+  await expect(row).toContainText('gift carxds');
+});

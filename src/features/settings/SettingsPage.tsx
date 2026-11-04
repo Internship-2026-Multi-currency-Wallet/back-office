@@ -3,22 +3,17 @@ import {
   Box,
   Button,
   CircularProgress,
-  LinearProgress,
   Paper,
   Snackbar,
   Stack,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
   Tooltip,
   Typography,
   type Theme,
+  useMediaQuery,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
-import { useMemo, useState } from 'react';
+import { DataGrid, type GridColDef } from '@mui/x-data-grid';
+import { useCallback, useMemo, useState } from 'react';
 import { useAppDispatch, useAppSelector } from '../../app/store';
 import { config } from '../../config-env';
 import { RequirePermission } from '../permissions/RequirePermission';
@@ -40,14 +35,6 @@ import {
 import { sameValue, settingCopy, validateSettingValue } from './settingValue';
 import { monoFont, ValueView } from './ValueView';
 
-const srOnly = {
-  position: 'absolute',
-  width: '1px',
-  height: '1px',
-  overflow: 'hidden',
-  clip: 'rect(0 0 0 0)',
-} as const;
-
 const FRESH = {
   refetchOnMountOrArgChange: true,
   refetchOnFocus: true,
@@ -58,34 +45,86 @@ const FRESH = {
 
 const quietButton = { px: 0.75, minWidth: 0, fontSize: 12.5, textTransform: 'none' } as const;
 
-const tableSx = (theme: Theme) => {
-  const rail = `inset 3px 0 0 ${theme.palette.secondary.main}`;
-  return {
-    '& td, & th': { borderColor: 'divider' },
-    '& th': {
-      bgcolor: 'grey.50',
-      fontSize: 11,
-      fontWeight: 700,
-      letterSpacing: 1.2,
-      textTransform: 'uppercase',
-      color: 'text.secondary',
+const gridSx = (compact: boolean) => (theme: Theme) => ({
+  border: 0,
+  '& .MuiDataGrid-cell': { py: compact ? 1.5 : 2, display: 'flex', alignItems: 'center' },
+  '& .MuiDataGrid-cell:focus, & .MuiDataGrid-cell:focus-within, & .MuiDataGrid-columnHeader:focus, & .MuiDataGrid-columnHeader:focus-within':
+    { outline: 'none' },
+  '& .MuiDataGrid-columnHeader': { bgcolor: 'grey.50' },
+  '& .MuiDataGrid-columnHeaderTitle': {
+    fontSize: 11,
+    fontWeight: 700,
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
+    color: 'text.secondary',
+  },
+  '& .MuiDataGrid-columnSeparator': { display: 'none' },
+  '& .MuiDataGrid-row:hover': { bgcolor: alpha(theme.palette.primary.main, 0.03) },
+  '& .is-overridden': { boxShadow: `inset 3px 0 0 ${theme.palette.secondary.main}` },
+  ...(compact && { '& .MuiDataGrid-columnHeaders': { display: 'none' } }),
+});
+
+type ChangeSetting = (setting: StaffSetting, next: SettingState) => void;
+
+function settingColumns(
+  compact: boolean,
+  onChange: ChangeSetting,
+  onHistory: (key: string) => void,
+): GridColDef<DisplayedSetting>[] {
+  const fixed = { sortable: false, disableColumnMenu: true, resizable: false } as const;
+  if (compact) {
+    return [
+      {
+        ...fixed,
+        field: 'key',
+        headerName: 'Setting',
+        flex: 1,
+        renderCell: ({ row }) => (
+          <Stack spacing={1.5} sx={{ minWidth: 0, width: '100%', alignItems: 'flex-start' }}>
+            <SettingName setting={row} />
+            <ValueCell setting={row} onChange={onChange} />
+            <SourceCell setting={row} onChange={onChange} />
+            <HistoryButton setting={row} onHistory={onHistory} />
+          </Stack>
+        ),
+      },
+    ];
+  }
+  return [
+    {
+      ...fixed,
+      field: 'key',
+      headerName: 'Setting',
+      flex: 1.5,
+      minWidth: 260,
+      renderCell: ({ row }) => <SettingName setting={row} />,
     },
-    '& td': { py: 2.25, verticalAlign: 'middle' },
-    '& tbody tr:last-of-type td': { borderBottom: 0 },
-    '& tbody tr:hover': { bgcolor: alpha(theme.palette.primary.main, 0.03) },
-    '& .is-overridden td:first-of-type': { boxShadow: rail },
-    [theme.breakpoints.down('md')]: {
-      '& thead': { display: 'none' },
-      '& tr': { display: 'block', borderBottom: 1, borderColor: 'divider' },
-      '& tbody tr:last-of-type': { borderBottom: 0 },
-      '& td': { display: 'block', border: 0, py: 1, px: 2 },
-      '& td:first-of-type': { pt: 2 },
-      '& td:last-of-type': { pb: 2, textAlign: 'left' },
-      '& .is-overridden td:first-of-type': { boxShadow: 'none' },
-      '& .is-overridden': { boxShadow: rail },
+    {
+      ...fixed,
+      field: 'value',
+      headerName: 'Value',
+      flex: 1.4,
+      minWidth: 280,
+      renderCell: ({ row }) => <ValueCell setting={row} onChange={onChange} />,
     },
-  } as const;
-};
+    {
+      ...fixed,
+      field: 'overridden',
+      headerName: 'Source',
+      width: 180,
+      renderCell: ({ row }) => <SourceCell setting={row} onChange={onChange} />,
+    },
+    {
+      ...fixed,
+      field: 'history',
+      headerName: 'History',
+      width: 110,
+      align: 'right',
+      headerAlign: 'right',
+      renderCell: ({ row }) => <HistoryButton setting={row} onHistory={onHistory} />,
+    },
+  ];
+}
 
 export function SettingsPage() {
   return (
@@ -136,17 +175,23 @@ function ClientSettings() {
   const settings = useMemo(() => (data ? displayedSettings(data, writes) : []), [data, writes]);
   const [history, setHistory] = useState<string | undefined | null>(null);
   const { notice } = writes;
+  const compact = useMediaQuery((theme: Theme) => theme.breakpoints.down('md'));
 
-  const change = (setting: StaffSetting, next: SettingState) => {
-    if (next.overridden) {
-      const problem = validateSettingValue(setting, next.value);
-      if (problem) {
-        const message = `${settingCopy(setting.key).name}: ${problem}`;
-        return dispatch(showSettingNotice({ key: setting.key, severity: 'error', message }));
+  const change = useCallback<ChangeSetting>(
+    (setting, next) => {
+      if (next.overridden) {
+        const problem = validateSettingValue(setting, next.value);
+        if (problem) {
+          const message = `${settingCopy(setting.key).name}: ${problem}`;
+          dispatch(showSettingNotice({ key: setting.key, severity: 'error', message }));
+          return;
+        }
       }
-    }
-    void dispatch(saveSetting(setting.key, next));
-  };
+      void dispatch(saveSetting(setting.key, next));
+    },
+    [dispatch],
+  );
+  const columns = useMemo(() => settingColumns(compact, change, setHistory), [compact, change]);
 
   return (
     <Stack spacing={3}>
@@ -204,34 +249,27 @@ function ClientSettings() {
         </Alert>
       )}
 
-      {isLoading && <LinearProgress color="secondary" aria-label="Loading settings" />}
-      {data && (
-        <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2 }}>
-          <Table sx={tableSx}>
-            <TableHead>
-              <TableRow>
-                <TableCell>Setting</TableCell>
-                <TableCell>Value</TableCell>
-                <TableCell>Source</TableCell>
-                <TableCell>
-                  <Box component="span" sx={srOnly}>
-                    History
-                  </Box>
-                </TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {settings.map((row) => (
-                <SettingRow
-                  key={row.key}
-                  setting={row}
-                  onChange={(next) => change(row, next)}
-                  onHistory={() => setHistory(row.key)}
-                />
-              ))}
-            </TableBody>
-          </Table>
-        </TableContainer>
+      {(data || isLoading) && (
+        <Paper variant="outlined" sx={{ borderRadius: 2, overflow: 'hidden' }}>
+          <DataGrid
+            rows={settings}
+            columns={columns}
+            getRowId={(row) => row.key}
+            loading={isLoading}
+            autoHeight
+            hideFooter
+            columnHeaderHeight={compact ? 0 : 56}
+            getRowHeight={() => 'auto'}
+            getRowClassName={({ row }) => (row.overridden ? 'is-overridden' : '')}
+            disableRowSelectionOnClick
+            disableColumnResize
+            onCellKeyDown={(_, event) => {
+              if (event.target !== event.currentTarget) event.defaultMuiPrevented = true;
+            }}
+            aria-label="Client settings"
+            sx={gridSx(compact)}
+          />
+        </Paper>
       )}
 
       {history !== null && (
@@ -283,71 +321,69 @@ function ClientSettings() {
   );
 }
 
-interface SettingRowProps {
-  setting: DisplayedSetting;
-  onChange: (next: SettingState) => void;
-  onHistory: () => void;
+function ValueCell({ setting, onChange }: { setting: DisplayedSetting; onChange: ChangeSetting }) {
+  return (
+    <Stack spacing={0.75} sx={{ minWidth: 0, maxWidth: '100%' }}>
+      <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+        <SettingControl
+          setting={setting}
+          onChange={(value) => onChange(setting, { value, overridden: true })}
+        />
+        {setting.saving && (
+          <CircularProgress
+            size={16}
+            color="secondary"
+            aria-label={`Saving ${settingCopy(setting.key).name}`}
+          />
+        )}
+      </Stack>
+      {setting.overridden && !sameValue(setting.value, setting.defaultValue) && (
+        <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center' }}>
+          <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+            default
+          </Typography>
+          <ValueView value={setting.defaultValue} muted />
+        </Stack>
+      )}
+    </Stack>
+  );
 }
 
-function SettingRow({ setting, onChange, onHistory }: SettingRowProps) {
-  const name = settingCopy(setting.key).name;
-
+function SourceCell({ setting, onChange }: { setting: DisplayedSetting; onChange: ChangeSetting }) {
   return (
-    <TableRow
-      className={setting.overridden ? 'is-overridden' : undefined}
-      aria-busy={setting.saving || undefined}
-    >
-      <TableCell>
-        <SettingName setting={setting} />
-      </TableCell>
-      <TableCell>
-        <Stack spacing={0.75}>
-          <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-            <SettingControl
-              setting={setting}
-              onChange={(value) => onChange({ value, overridden: true })}
-            />
-            {setting.saving && (
-              <CircularProgress size={16} color="secondary" aria-label={`Saving ${name}`} />
-            )}
-          </Stack>
-          {setting.overridden && !sameValue(setting.value, setting.defaultValue) && (
-            <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center' }}>
-              <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                default
-              </Typography>
-              <ValueView value={setting.defaultValue} muted />
-            </Stack>
-          )}
-        </Stack>
-      </TableCell>
-      <TableCell>
-        <Stack spacing={0.25} sx={{ alignItems: 'flex-start' }}>
-          <SourceMark overridden={setting.overridden} />
-          {setting.overridden && (
-            <Button
-              size="small"
-              color="inherit"
-              onClick={() => onChange({ value: setting.defaultValue, overridden: false })}
-              aria-label={`Reset to default: ${name}`}
-              sx={{ ...quietButton, color: 'text.secondary', ml: -0.75 }}
-            >
-              ↺ reset to default
-            </Button>
-          )}
-        </Stack>
-      </TableCell>
-      <TableCell align="right">
+    <Stack spacing={0.25} sx={{ alignItems: 'flex-start' }}>
+      <SourceMark overridden={setting.overridden} />
+      {setting.overridden && (
         <Button
           size="small"
-          onClick={onHistory}
-          aria-label={`History of ${name}`}
-          sx={{ ...quietButton, fontWeight: 600 }}
+          color="inherit"
+          onClick={() => onChange(setting, { value: setting.defaultValue, overridden: false })}
+          aria-label={`Reset to default: ${settingCopy(setting.key).name}`}
+          sx={{ ...quietButton, color: 'text.secondary', ml: -0.75 }}
         >
-          History
+          ↺ reset to default
         </Button>
-      </TableCell>
-    </TableRow>
+      )}
+    </Stack>
+  );
+}
+
+function HistoryButton({
+  setting,
+  onHistory,
+}: {
+  setting: StaffSetting;
+  onHistory: (key: string) => void;
+}) {
+  return (
+    <Button
+      size="small"
+      onClick={() => onHistory(setting.key)}
+      aria-label={`History of ${settingCopy(setting.key).name}`}
+      sx={{ ...quietButton, fontWeight: 600, ml: -0.75 }}
+    >
+      History
+    </Button>
   );
 }
 

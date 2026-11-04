@@ -9,9 +9,9 @@ import { renderApp } from '../../test/render';
 export const walletCore = graphql.link(config.walletCoreUrl);
 
 export function rowOf(name: string): HTMLElement {
-  const row = within(screen.getByRole('table', { hidden: true }))
+  const row = within(screen.getByRole('grid', { hidden: true }))
     .getByText(name)
-    .closest<HTMLElement>('tr');
+    .closest<HTMLElement>('[role="row"]');
   if (!row) throw new Error(`No row for ${name}`);
   return row;
 }
