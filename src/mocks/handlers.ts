@@ -3,7 +3,18 @@ import { graphql } from 'msw/graphql';
 import { config } from '../config-env';
 import type { RatesServiceHealthQuery } from '../gql/rates-service/graphql';
 import type { TreasuryServiceHealthQuery } from '../gql/treasury-service/graphql';
-import type { MeQuery, WalletCoreHealthQuery } from '../gql/wallet-core/graphql';
+import type {
+  MeQuery,
+  ResetSettingMutation,
+  ResetSettingMutationVariables,
+  SettingHistoryQuery,
+  SettingHistoryQueryVariables,
+  StaffSettingsQuery,
+  UpdateSettingMutation,
+  UpdateSettingMutationVariables,
+  WalletCoreHealthQuery,
+} from '../gql/wallet-core/graphql';
+import { MockSettingsError, mockSettings } from './settings';
 
 /**
  * Mock Service Worker handlers (`VITE_USE_MOCKS=true`): every screen works without backends.
@@ -28,6 +39,26 @@ function devUserFrom(request: Request): { id: string; permissions: string[] } | 
   if (!match) return null;
   const permissions = (match[2] ?? '').split(',').filter(Boolean);
   return { id: match[1], permissions };
+}
+
+interface GraphQLBody<T> {
+  data: T | null;
+  errors?: { message: string; extensions: { code: string } }[];
+}
+
+function asStaff<T>(request: Request, permission: string, resolve: (userId: string) => T) {
+  const fail = (message: string, code: string) =>
+    HttpResponse.json<GraphQLBody<T>>({ data: null, errors: [{ message, extensions: { code } }] });
+  const user = devUserFrom(request);
+  if (!user) return fail('Authentication required', 'UNAUTHENTICATED');
+  if (!user.permissions.includes(permission))
+    return fail(`Missing permission: ${permission}`, 'FORBIDDEN');
+  try {
+    return HttpResponse.json<GraphQLBody<T>>({ data: resolve(user.id) });
+  } catch (error) {
+    if (error instanceof MockSettingsError) return fail(error.message, error.code);
+    throw error;
+  }
 }
 
 export const handlers = [
@@ -55,6 +86,37 @@ export const handlers = [
     }
     return HttpResponse.json({ data: { me: { ...user, strategy: 'dev' } } });
   }),
+
+  walletCore.query<StaffSettingsQuery>('StaffSettings', ({ request }) =>
+    asStaff(request, 'bo:settings', () => ({ staffSettings: mockSettings.list() })),
+  ),
+
+  walletCore.query<SettingHistoryQuery, SettingHistoryQueryVariables>(
+    'SettingHistory',
+    ({ request, variables }) =>
+      asStaff(request, 'bo:settings', () => ({
+        settingHistory: mockSettings.history({
+          ...variables,
+          beforeId: variables.beforeId == null ? null : String(variables.beforeId),
+        }),
+      })),
+  ),
+
+  walletCore.mutation<UpdateSettingMutation, UpdateSettingMutationVariables>(
+    'UpdateSetting',
+    ({ request, variables }) =>
+      asStaff(request, 'bo:settings:modify', (userId) => ({
+        updateSetting: mockSettings.update(variables.key, variables.value, userId),
+      })),
+  ),
+
+  walletCore.mutation<ResetSettingMutation, ResetSettingMutationVariables>(
+    'ResetSetting',
+    ({ request, variables }) =>
+      asStaff(request, 'bo:settings:modify', (userId) => ({
+        resetSetting: mockSettings.reset(variables.key, userId),
+      })),
+  ),
 
   ratesService.query<RatesServiceHealthQuery>('RatesServiceHealth', () =>
     HttpResponse.json({ data: { health: mockHealth('rates-service') } }),

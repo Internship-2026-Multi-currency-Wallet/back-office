@@ -12,7 +12,7 @@ describe('HomePage', () => {
       'Connected to wallet-core: wallet-core mock (client demo, db UP, redis UP)',
     );
     expect(await screen.findByTestId('me')).toHaveTextContent(
-      'Dev user: 100 (permissions: bo:users, bo:users:modify)',
+      'Dev user: 100 (permissions: bo:users, bo:users:modify, bo:settings, bo:settings:modify)',
     );
     expect(await screen.findByTestId('status-rates-service')).toHaveTextContent('mock · db UP');
     expect(await screen.findByTestId('status-treasury-service')).toHaveTextContent('mock · db UP');

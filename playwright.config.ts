@@ -18,6 +18,9 @@ export default defineConfig({
     command: `npx vite --port ${PORT} --strictPort`,
     url: `http://localhost:${PORT}`,
     reuseExistingServer: !process.env.CI,
-    env: { VITE_USE_MOCKS: 'true', VITE_DEV_USER: '100:bo:users,bo:users:modify' },
+    env: {
+      VITE_USE_MOCKS: 'true',
+      VITE_DEV_USER: '100:bo:users,bo:users:modify,bo:settings,bo:settings:modify',
+    },
   },
 });

@@ -14,10 +14,18 @@ import type { TypedDocumentNode as DocumentNode } from '@graphql-typed-document-
  * Learn more about it here: https://the-guild.dev/graphql/codegen/plugins/presets/preset-client#reducing-bundle-size
  */
 type Documents = {
+    "\n  query StaffSettings {\n    staffSettings {\n      key\n      type\n      allowedValues\n      public\n      value\n      defaultValue\n      overridden\n    }\n  }\n": typeof types.StaffSettingsDocument,
+    "\n  query SettingHistory($key: String, $limit: Int!, $before: DateTime, $beforeId: ID) {\n    settingHistory(key: $key, limit: $limit, before: $before, beforeId: $beforeId) {\n      id\n      key\n      oldValue\n      newValue\n      changedBy\n      changedAt\n    }\n  }\n": typeof types.SettingHistoryDocument,
+    "\n  mutation UpdateSetting($key: String!, $value: JSON!) {\n    updateSetting(key: $key, value: $value) {\n      key\n      value\n      overridden\n    }\n  }\n": typeof types.UpdateSettingDocument,
+    "\n  mutation ResetSetting($key: String!) {\n    resetSetting(key: $key) {\n      key\n      value\n      overridden\n    }\n  }\n": typeof types.ResetSettingDocument,
     "\n  query WalletCoreHealth {\n    health {\n      service\n      version\n      client\n      db\n      redis\n    }\n  }\n": typeof types.WalletCoreHealthDocument,
     "\n  query Me {\n    me {\n      id\n      permissions\n      strategy\n    }\n  }\n": typeof types.MeDocument,
 };
 const documents: Documents = {
+    "\n  query StaffSettings {\n    staffSettings {\n      key\n      type\n      allowedValues\n      public\n      value\n      defaultValue\n      overridden\n    }\n  }\n": types.StaffSettingsDocument,
+    "\n  query SettingHistory($key: String, $limit: Int!, $before: DateTime, $beforeId: ID) {\n    settingHistory(key: $key, limit: $limit, before: $before, beforeId: $beforeId) {\n      id\n      key\n      oldValue\n      newValue\n      changedBy\n      changedAt\n    }\n  }\n": types.SettingHistoryDocument,
+    "\n  mutation UpdateSetting($key: String!, $value: JSON!) {\n    updateSetting(key: $key, value: $value) {\n      key\n      value\n      overridden\n    }\n  }\n": types.UpdateSettingDocument,
+    "\n  mutation ResetSetting($key: String!) {\n    resetSetting(key: $key) {\n      key\n      value\n      overridden\n    }\n  }\n": types.ResetSettingDocument,
     "\n  query WalletCoreHealth {\n    health {\n      service\n      version\n      client\n      db\n      redis\n    }\n  }\n": types.WalletCoreHealthDocument,
     "\n  query Me {\n    me {\n      id\n      permissions\n      strategy\n    }\n  }\n": types.MeDocument,
 };
@@ -36,6 +44,22 @@ const documents: Documents = {
  */
 export function graphql(source: string): unknown;
 
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n  query StaffSettings {\n    staffSettings {\n      key\n      type\n      allowedValues\n      public\n      value\n      defaultValue\n      overridden\n    }\n  }\n"): (typeof documents)["\n  query StaffSettings {\n    staffSettings {\n      key\n      type\n      allowedValues\n      public\n      value\n      defaultValue\n      overridden\n    }\n  }\n"];
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n  query SettingHistory($key: String, $limit: Int!, $before: DateTime, $beforeId: ID) {\n    settingHistory(key: $key, limit: $limit, before: $before, beforeId: $beforeId) {\n      id\n      key\n      oldValue\n      newValue\n      changedBy\n      changedAt\n    }\n  }\n"): (typeof documents)["\n  query SettingHistory($key: String, $limit: Int!, $before: DateTime, $beforeId: ID) {\n    settingHistory(key: $key, limit: $limit, before: $before, beforeId: $beforeId) {\n      id\n      key\n      oldValue\n      newValue\n      changedBy\n      changedAt\n    }\n  }\n"];
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n  mutation UpdateSetting($key: String!, $value: JSON!) {\n    updateSetting(key: $key, value: $value) {\n      key\n      value\n      overridden\n    }\n  }\n"): (typeof documents)["\n  mutation UpdateSetting($key: String!, $value: JSON!) {\n    updateSetting(key: $key, value: $value) {\n      key\n      value\n      overridden\n    }\n  }\n"];
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n  mutation ResetSetting($key: String!) {\n    resetSetting(key: $key) {\n      key\n      value\n      overridden\n    }\n  }\n"): (typeof documents)["\n  mutation ResetSetting($key: String!) {\n    resetSetting(key: $key) {\n      key\n      value\n      overridden\n    }\n  }\n"];
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
