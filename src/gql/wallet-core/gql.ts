@@ -19,7 +19,7 @@ type Documents = {
     "\n  mutation UpdateSetting($key: String!, $value: JSON!) {\n    updateSetting(key: $key, value: $value) {\n      key\n      value\n      overridden\n    }\n  }\n": typeof types.UpdateSettingDocument,
     "\n  mutation ResetSetting($key: String!) {\n    resetSetting(key: $key) {\n      key\n      value\n      overridden\n    }\n  }\n": typeof types.ResetSettingDocument,
     "\n  query WalletCoreHealth {\n    health {\n      service\n      version\n      client\n      db\n      redis\n    }\n  }\n": typeof types.WalletCoreHealthDocument,
-    "\n  query Me {\n    me {\n      id\n      permissions\n      strategy\n    }\n  }\n": typeof types.MeDocument,
+    "\n  query Me {\n    me {\n      id\n      kind\n      permissions\n      strategy\n    }\n  }\n": typeof types.MeDocument,
 };
 const documents: Documents = {
     "\n  query StaffSettings {\n    staffSettings {\n      key\n      type\n      allowedValues\n      public\n      value\n      defaultValue\n      overridden\n    }\n  }\n": types.StaffSettingsDocument,
@@ -27,7 +27,7 @@ const documents: Documents = {
     "\n  mutation UpdateSetting($key: String!, $value: JSON!) {\n    updateSetting(key: $key, value: $value) {\n      key\n      value\n      overridden\n    }\n  }\n": types.UpdateSettingDocument,
     "\n  mutation ResetSetting($key: String!) {\n    resetSetting(key: $key) {\n      key\n      value\n      overridden\n    }\n  }\n": types.ResetSettingDocument,
     "\n  query WalletCoreHealth {\n    health {\n      service\n      version\n      client\n      db\n      redis\n    }\n  }\n": types.WalletCoreHealthDocument,
-    "\n  query Me {\n    me {\n      id\n      permissions\n      strategy\n    }\n  }\n": types.MeDocument,
+    "\n  query Me {\n    me {\n      id\n      kind\n      permissions\n      strategy\n    }\n  }\n": types.MeDocument,
 };
 
 /**
@@ -67,7 +67,7 @@ export function graphql(source: "\n  query WalletCoreHealth {\n    health {\n   
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
-export function graphql(source: "\n  query Me {\n    me {\n      id\n      permissions\n      strategy\n    }\n  }\n"): (typeof documents)["\n  query Me {\n    me {\n      id\n      permissions\n      strategy\n    }\n  }\n"];
+export function graphql(source: "\n  query Me {\n    me {\n      id\n      kind\n      permissions\n      strategy\n    }\n  }\n"): (typeof documents)["\n  query Me {\n    me {\n      id\n      kind\n      permissions\n      strategy\n    }\n  }\n"];
 
 export function graphql(source: string) {
   return (documents as any)[source] ?? {};
