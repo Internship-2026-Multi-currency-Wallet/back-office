@@ -16,11 +16,11 @@ describe('UsersPage', () => {
 
   it('hides the page without bo:users', async () => {
     server.use(
-      graphql
-        .link(config.walletCoreUrl)
-        .query('Me', () =>
-          HttpResponse.json({ data: { me: { id: '9', permissions: [], strategy: 'dev' } } }),
-        ),
+      graphql.link(config.walletCoreUrl).query('Me', () =>
+        HttpResponse.json({
+          data: { me: { id: '9', kind: 'STAFF', permissions: [], strategy: 'dev' } },
+        }),
+      ),
     );
     renderApp('/users');
     expect(await screen.findByText(/You need the bo:users permission/)).toBeInTheDocument();

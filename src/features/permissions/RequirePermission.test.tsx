@@ -10,11 +10,11 @@ import { hasPermissions } from './usePermissions';
 
 function renderWithPermissions(permissions: string[]) {
   server.use(
-    graphql
-      .link(config.walletCoreUrl)
-      .query('Me', () =>
-        HttpResponse.json({ data: { me: { id: '100', permissions, strategy: 'dev' } } }),
-      ),
+    graphql.link(config.walletCoreUrl).query('Me', () =>
+      HttpResponse.json({
+        data: { me: { id: '100', kind: 'STAFF', permissions, strategy: 'dev' } },
+      }),
+    ),
   );
   render(
     <AppProviders store={createStore()}>

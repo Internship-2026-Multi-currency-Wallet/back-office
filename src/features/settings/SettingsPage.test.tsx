@@ -385,7 +385,7 @@ describe('SettingsPage', () => {
     server.use(
       walletCore.query('Me', () =>
         HttpResponse.json({
-          data: { me: { id: '7', permissions: ['bo:settings'], strategy: 'dev' } },
+          data: { me: { id: '7', kind: 'STAFF', permissions: ['bo:settings'], strategy: 'dev' } },
         }),
       ),
     );
@@ -402,7 +402,9 @@ describe('SettingsPage', () => {
     server.use(
       walletCore.query('Me', () =>
         HttpResponse.json({
-          data: { me: { id: '7', permissions: ['bo:settings:modify'], strategy: 'dev' } },
+          data: {
+            me: { id: '7', kind: 'STAFF', permissions: ['bo:settings:modify'], strategy: 'dev' },
+          },
         }),
       ),
     );
