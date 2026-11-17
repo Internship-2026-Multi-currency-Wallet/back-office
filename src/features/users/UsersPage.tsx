@@ -25,34 +25,29 @@ const columns: GridColDef<DemoUser>[] = [
   { field: 'createdAt', headerName: 'Created', width: 130 },
 ];
 
-/** Demo page: MUI X DataGrid with mock data, gated by `bo:users`. */
+/** Demo page: MUI X DataGrid with mock data. The route requires `bo:users` (`app/routes.tsx`). */
 export function UsersPage() {
   return (
-    <RequirePermission
-      permission="bo:users"
-      fallback={<Alert severity="warning">You need the bo:users permission to see users.</Alert>}
-    >
-      <Stack spacing={2}>
-        <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center' }}>
-          <Typography variant="h4" component="h1">
-            Users
-          </Typography>
-          <RequirePermission permission="bo:users:modify">
-            <Button variant="contained">Add user</Button>
-          </RequirePermission>
-        </Stack>
-        <Alert severity="info">Demo data — the users API is a task.</Alert>
-        <Paper>
-          <DataGrid
-            rows={demoUsers}
-            columns={columns}
-            autoHeight
-            disableRowSelectionOnClick
-            initialState={{ pagination: { paginationModel: { pageSize: 25 } } }}
-            pageSizeOptions={[25, 50]}
-          />
-        </Paper>
+    <Stack spacing={2}>
+      <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center' }}>
+        <Typography variant="h4" component="h1">
+          Users
+        </Typography>
+        <RequirePermission permission="bo:users:modify">
+          <Button variant="contained">Add user</Button>
+        </RequirePermission>
       </Stack>
-    </RequirePermission>
+      <Alert severity="info">Demo data — the users API is a task.</Alert>
+      <Paper>
+        <DataGrid
+          rows={demoUsers}
+          columns={columns}
+          autoHeight
+          disableRowSelectionOnClick
+          initialState={{ pagination: { paginationModel: { pageSize: 25 } } }}
+          pageSizeOptions={[25, 50]}
+        />
+      </Paper>
+    </Stack>
   );
 }
