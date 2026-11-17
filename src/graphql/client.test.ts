@@ -16,9 +16,10 @@ import { accessToken, loadSession } from './session';
 const staffMe = () => request('walletCore', staffMeQuery);
 
 describe('request with an expired access token', () => {
-  it('refreshes once and repeats the request with the new token', async () => {
+  it('refreshes once and repeats the request with the new token, in the same session', async () => {
     signInForTest({ expired: true });
     const stale = accessToken();
+    const sessionId = loadSession()?.sessionId;
     const refresh = countCalls('StaffRefreshSession');
     const me = countCalls('StaffMe');
     server.use(refresh.handler, me.handler);
@@ -27,6 +28,29 @@ describe('request with an expired access token', () => {
     expect(refresh.counter.calls).toBe(1);
     expect(me.counter.calls).toBe(2);
     expect(accessToken()).not.toBe(stale);
+    expect(loadSession()?.sessionId).toBe(sessionId);
+  });
+
+  it('does not repeat a request after a logout and a new login as the same staff member', async () => {
+    signInForTest({ expired: true });
+    const refresh = countCalls('StaffRefreshSession');
+    let me = 0;
+    server.use(
+      refresh.handler,
+      walletCore.query('StaffMe', () => {
+        me += 1;
+        otherTabWrites(null); // log out …
+        otherTabWrites(testSession(ADMIN)); // … and in again, while the old request is on its way
+        return HttpResponse.json({
+          errors: [{ message: 'Access token expired', extensions: { code: 'UNAUTHENTICATED' } }],
+        });
+      }),
+    );
+
+    await expect(staffMe()).rejects.toThrow();
+    expect(me).toBe(1);
+    expect(refresh.counter.calls).toBe(0);
+    expect(loadSession()?.staff.id).toBe(ADMIN.id);
   });
 
   it('refreshes only once for parallel requests in this tab', async () => {

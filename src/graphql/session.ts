@@ -14,6 +14,8 @@ export interface SessionStaff {
 }
 
 export interface Session {
+  /** One logical session: a login creates a new one, a refresh keeps it. */
+  sessionId: string;
   accessToken: string;
   accessTokenExpiresAt: string;
   staff: SessionStaff;
@@ -32,16 +34,17 @@ const nonEmpty = (value: unknown): value is string => typeof value === 'string' 
 /** Stored data is never trusted: anything malformed counts as "signed out". */
 function parseSession(raw: string | null): Session | null {
   try {
-    const { accessToken, accessTokenExpiresAt, staff } = JSON.parse(raw ?? 'null') as Record<
-      string,
-      unknown
-    >;
+    const { sessionId, accessToken, accessTokenExpiresAt, staff } = JSON.parse(
+      raw ?? 'null',
+    ) as Record<string, unknown>;
     const { id, email, role, permissions } = (staff ?? {}) as Record<string, unknown>;
-    if (!nonEmpty(accessToken) || !nonEmpty(accessTokenExpiresAt)) return null;
+    if (!nonEmpty(sessionId) || !nonEmpty(accessToken) || !nonEmpty(accessTokenExpiresAt))
+      return null;
     if (!Number.isFinite(Date.parse(accessTokenExpiresAt))) return null;
     if (!nonEmpty(id) || !nonEmpty(email) || !nonEmpty(role)) return null;
     if (!Array.isArray(permissions) || !permissions.every(nonEmpty)) return null;
     return {
+      sessionId,
       accessToken,
       accessTokenExpiresAt,
       staff: { id, email, role: role as StaffRole, permissions },
@@ -51,11 +54,17 @@ function parseSession(raw: string | null): Session | null {
   }
 }
 
-/** `staffLogin` / `staffRefreshSession` result → session (only the fields we keep). */
-export function sessionFromPayload(payload: Session): Session {
+/**
+ * `staffLogin` / `staffRefreshSession` result → session (only the fields we keep). A login gets a new `sessionId`;
+ * a refresh passes the current one. Not a secret: it only tells two sessions apart.
+ */
+export function sessionFromPayload(
+  payload: Omit<Session, 'sessionId'>,
+  sessionId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`,
+): Session {
   const { accessToken, accessTokenExpiresAt, staff } = payload;
   const { id, email, role, permissions } = staff;
-  return { accessToken, accessTokenExpiresAt, staff: { id, email, role, permissions } };
+  return { sessionId, accessToken, accessTokenExpiresAt, staff: { id, email, role, permissions } };
 }
 
 export function loadSession(): Session | null {

@@ -128,8 +128,8 @@ export async function request<TResult, TVariables extends Record<string, unknown
     }
     // Another request may have refreshed already: then just repeat with its token.
     if (accessToken() === used.accessToken && !(await refreshSession())) throw error;
-    // Signed out or another staff member signed in meanwhile: never repeat the request as them.
-    if (loadSession()?.staff.id !== used.staff.id) throw error;
+    // Signed out or signed in again meanwhile (even as the same staff member): never repeat it in another session.
+    if (loadSession()?.sessionId !== used.sessionId) throw error;
     return send();
   }
 }
@@ -171,7 +171,7 @@ async function refreshWithLock(): Promise<boolean> {
     }
     // A logout or login during the request wins over this answer.
     if (accessToken() !== tokenAtStart) return accessToken() !== null;
-    saveSession(sessionFromPayload(payload));
+    saveSession(sessionFromPayload(payload, loadSession()!.sessionId));
     return true;
   });
 }

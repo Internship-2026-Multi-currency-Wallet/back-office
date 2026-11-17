@@ -20,6 +20,7 @@ export const SUPPORT: SessionStaff = {
 export function testSession(staff = ADMIN, { expired = false } = {}): Session {
   const expiresAt = expired ? Date.now() - 1000 : Date.now() + 15 * 60 * 1000;
   return {
+    sessionId: `test-${staff.id}-${Math.random().toString(36).slice(2)}`,
     accessToken: mockAccessToken(staff.id, expiresAt),
     accessTokenExpiresAt: new Date(expiresAt).toISOString(),
     staff,

@@ -231,13 +231,14 @@ async function send(
   stale: () => boolean,
 ): Promise<SaveOutcome> {
   const dropped: SaveOutcome = { id, status: 'rejected', message: 'the session changed' };
+  // Queued by another session: never refresh or send it with the current staff member's token.
+  if (stale()) return dropped;
   let previous = serverStateOf(getState(), key);
   if (!previous) {
     await refresh(dispatch);
+    if (stale()) return dropped;
     previous = serverStateOf(getState(), key);
   }
-  // Queued by another session: never send it with the current staff member's token.
-  if (stale()) return dropped;
 
   const request = next.overridden
     ? dispatch(settingsApi.endpoints.updateSetting.initiate({ key, value: next.value }))

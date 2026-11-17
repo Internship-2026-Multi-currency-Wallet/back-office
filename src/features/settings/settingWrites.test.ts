@@ -4,6 +4,7 @@ import { server } from '../../mocks/server';
 import { mockSettings, resetMockSettings } from '../../mocks/settings';
 import {
   ADMIN,
+  countCalls,
   otherTabWrites,
   signInForTest,
   SUPPORT,
@@ -98,6 +99,8 @@ describe('identity change', () => {
     const first = store.dispatch(saveSetting(KEY, { value: false, overridden: true }));
     const second = store.dispatch(saveSetting(KEY, { value: true, overridden: true }));
     await vi.waitFor(() => expect(sentWith).toHaveLength(1));
+    const reads = countCalls('StaffSettings');
+    server.use(reads.handler);
     change();
     expect(accessToken()).not.toBe(tokenA);
     expect(store.getState().auth.staff?.id).toBe(staff.id);
@@ -110,7 +113,46 @@ describe('identity change', () => {
       message: 'the session changed',
     });
     expect(sentWith).toEqual([`Bearer ${tokenA}`]);
+    expect(reads.counter.calls).toBe(0); // no refresh for a stale write either
     expect(store.getState().settingWrites).toMatchObject({ keys: {}, notice: null });
-    expect(mockSettings.list().find((s) => s.key === KEY)).toMatchObject({ value: false });
+    // Only A's write, sent before the change, reaches the server.
+    await vi.waitFor(() =>
+      expect(mockSettings.list().find((s) => s.key === KEY)).toMatchObject({ value: false }),
+    );
+  });
+});
+
+describe('queues of a new session', () => {
+  it('a write of the new session does not wait for a hung write of the previous one', async () => {
+    const store = await signedInStore();
+    const tokenA = accessToken();
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    server.use(
+      walletCore.mutation('UpdateSetting', async ({ request }) => {
+        if (request.headers.get('authorization') === `Bearer ${tokenA}`) await held;
+      }),
+    );
+    const old = store.dispatch(saveSetting(KEY, { value: false, overridden: true }));
+    await vi.waitFor(() =>
+      expect(store.getState().settingWrites.keys[KEY]?.intents).toHaveLength(1),
+    );
+
+    otherTabWrites(null);
+    otherTabWrites(testSession(ADMIN));
+    await store.dispatch(settingsApi.endpoints.staffSettings.initiate());
+    // Not released: A's request still hangs on the server. The identity change (`resetApiState`) aborted A's
+    // running mutation, so the per-key queue does not hold this write.
+    await expect(
+      store.dispatch(saveSetting(KEY, { value: true, overridden: true })),
+    ).resolves.toMatchObject({ status: 'saved' });
+
+    release();
+    await expect(old).resolves.toMatchObject({ status: 'rejected' });
+    // A's late answer changes nothing of the new session.
+    expect(store.getState().settingWrites.keys[KEY].confirmed).toMatchObject({ value: true });
+    expect(store.getState().settingWrites.notice).toMatchObject({
+      message: 'Google sign-in saved',
+    });
   });
 });
