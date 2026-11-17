@@ -1,11 +1,13 @@
 import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { HttpResponse } from 'msw';
+import { toRequestError } from '../../graphql/client';
 import { loadSession } from '../../graphql/session';
 import { server } from '../../mocks/server';
-import { MOCK_INVITATION_TOKEN } from '../../mocks/staff';
+import { MOCK_INVITATION_TOKEN, MOCK_INVITED_EMAIL } from '../../mocks/staff';
 import { walletCore } from '../../test/auth';
 import { renderApp } from '../../test/render';
+import { acceptStaffInvitation, staffLogin } from './authApi';
 
 const STRONG = 'Invited1234!';
 const url = (token = MOCK_INVITATION_TOKEN) => `/accept-invitation?token=${token}`;
@@ -117,5 +119,28 @@ describe('accept invitation', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Could not reach the server.');
     await userEvent.click(submit());
     expect(await screen.findByText(/Your password is set/)).toBeVisible();
+  });
+});
+
+describe('mock invitation contract', () => {
+  const codeOf = (promise: Promise<unknown>) =>
+    promise.then(
+      () => 'ok',
+      (error: unknown) => toRequestError(error).code,
+    );
+  const logIn = () => staffLogin({ email: MOCK_INVITED_EMAIL, password: STRONG });
+
+  it('activates the invited account once, with the new password', async () => {
+    expect(await codeOf(logIn())).toBe('INVALID_CREDENTIALS');
+    // Like wallet-core: the password is checked before the token.
+    expect(await codeOf(acceptStaffInvitation({ token: 'unknown', password: 'weak' }))).toBe(
+      'BAD_USER_INPUT',
+    );
+
+    await acceptStaffInvitation({ token: MOCK_INVITATION_TOKEN, password: STRONG });
+    expect((await logIn()).email).toBe(MOCK_INVITED_EMAIL);
+    expect(
+      await codeOf(acceptStaffInvitation({ token: MOCK_INVITATION_TOKEN, password: STRONG })),
+    ).toBe('INVALID_INVITATION');
   });
 });

@@ -25,10 +25,7 @@ const PASSWORD_RULES = [
   { label: 'A special character', test: (p: string) => /[^\p{L}\p{N}]/u.test(p) },
 ];
 
-/**
- * Public page of the invitation link (`/accept-invitation?token=…`): the invited staff member sets a password.
- * The token stays in the URL and in memory only: never logged or stored. Accepting does not log in.
- */
+/** The token is a credential: keep it in memory only, never log or store it. */
 export function AcceptInvitationPage() {
   const token = useSearchParams()[0].get('token')?.trim() ?? '';
   const [password, setPassword] = useState('');
@@ -60,7 +57,6 @@ export function AcceptInvitationPage() {
     if (error) setError(null);
   };
 
-  // An unusable link: nothing to submit, the form would only fail again.
   const linkProblem = !token
     ? 'This invitation link is incomplete. Open the link from the invitation email again.'
     : error?.code === 'INVALID_INVITATION' ||

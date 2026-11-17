@@ -22,7 +22,7 @@ export function describeLoginError(error: Partial<GraphQLRequestError>): string 
   }
 }
 
-/** Errors of wallet-core `acceptStaffInvitation`. Texts are ours: the server `message` is for developers. */
+/** Controlled UI text: server messages are for developers. */
 export function describeInvitationError(error: Partial<GraphQLRequestError>): string {
   switch (error.code) {
     case 'INVALID_INVITATION':

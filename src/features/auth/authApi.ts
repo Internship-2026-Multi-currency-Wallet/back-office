@@ -52,10 +52,7 @@ export function staffLogout(): Promise<boolean> {
   });
 }
 
-/**
- * Public: sets the password of an invited staff member. Does not log in and never touches the session, so no lock;
- * its errors are final (no refresh) and a hung request is cancelled like the other auth calls.
- */
+/** Does not change the session identity, so it needs no session lock. */
 export async function acceptStaffInvitation(input: AcceptStaffInvitationInput): Promise<boolean> {
   const { acceptStaffInvitation } = await request(
     'walletCore',
