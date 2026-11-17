@@ -15,6 +15,7 @@ import type {
   WalletCoreHealthQuery,
 } from '../gql/wallet-core/graphql';
 import { MockSettingsError, mockSettings } from './settings';
+import { staffAuthHandlers, staffFromBearer } from './staff';
 
 /**
  * Mock Service Worker handlers (`VITE_USE_MOCKS=true`): every screen works without backends.
@@ -33,12 +34,19 @@ const mockHealth = (service: string) => ({
   redis: 'UP' as const,
 });
 
-/** In mocks the dev user comes from the request header, like on the real backend. */
-function devUserFrom(request: Request): { id: string; permissions: string[] } | null {
-  const match = /^Dev\s+([^:]+)(?::(.*))?$/i.exec(request.headers.get('authorization') ?? '');
+/** The caller, like on the real backend: a staff access token (`Bearer`) or the dev header. */
+function callerFrom(
+  request: Request,
+): { id: string; permissions: string[]; strategy: 'jwt' | 'dev' } | null {
+  const authorization = request.headers.get('authorization');
+  if (authorization?.startsWith('Bearer ')) {
+    const staff = staffFromBearer(authorization);
+    return staff && { ...staff, strategy: 'jwt' };
+  }
+  const match = /^Dev\s+([^:]+)(?::(.*))?$/i.exec(authorization ?? '');
   if (!match) return null;
   const permissions = (match[2] ?? '').split(',').filter(Boolean);
-  return { id: match[1], permissions };
+  return { id: match[1], permissions, strategy: 'dev' };
 }
 
 interface GraphQLBody<T> {
@@ -49,7 +57,7 @@ interface GraphQLBody<T> {
 function asStaff<T>(request: Request, permission: string, resolve: (userId: string) => T) {
   const fail = (message: string, code: string) =>
     HttpResponse.json<GraphQLBody<T>>({ data: null, errors: [{ message, extensions: { code } }] });
-  const user = devUserFrom(request);
+  const user = callerFrom(request);
   if (!user) return fail('Authentication required', 'UNAUTHENTICATED');
   if (!user.permissions.includes(permission))
     return fail(`Missing permission: ${permission}`, 'FORBIDDEN');
@@ -62,6 +70,8 @@ function asStaff<T>(request: Request, permission: string, resolve: (userId: stri
 }
 
 export const handlers = [
+  ...staffAuthHandlers,
+
   walletCore.query<WalletCoreHealthQuery>('WalletCoreHealth', () =>
     HttpResponse.json({
       data: {
@@ -77,7 +87,7 @@ export const handlers = [
   ),
 
   walletCore.query<MeQuery>('Me', ({ request }) => {
-    const user = devUserFrom(request);
+    const user = callerFrom(request);
     if (!user) {
       return HttpResponse.json({
         data: null,
@@ -85,7 +95,7 @@ export const handlers = [
       });
     }
     // Only staff use the back-office; the dev header has no user type until E1-13.
-    return HttpResponse.json({ data: { me: { ...user, kind: 'STAFF', strategy: 'dev' } } });
+    return HttpResponse.json({ data: { me: { ...user, kind: 'STAFF' } } });
   }),
 
   walletCore.query<StaffSettingsQuery>('StaffSettings', ({ request }) =>

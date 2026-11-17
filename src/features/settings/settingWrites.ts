@@ -34,9 +34,11 @@ export interface SettingNotice {
 interface WritesState {
   keys: Record<string, KeyWrites>;
   notice: SettingNotice | null;
+  /** Grows with every identity change (log out, log in, another account): older writes never run. */
+  session: number;
 }
 
-const initialState: WritesState = { keys: {}, notice: null };
+const initialState: WritesState = { keys: {}, notice: null, session: 0 };
 
 const slice = createSlice({
   name: 'settingWrites',
@@ -77,6 +79,11 @@ const slice = createSlice({
     },
   },
   extraReducers: (builder) => {
+    // Nothing of the previous staff member (notice, Undo, intents, confirmed values) stays.
+    builder.addCase(settingsApi.util.resetApiState, (state) => ({
+      ...initialState,
+      session: state.session + 1,
+    }));
     builder.addMatcher(settingsApi.endpoints.staffSettings.matchFulfilled, (state, { payload }) => {
       for (const writes of Object.values(state.keys)) {
         if (writes.confirmed && writes.confirmed.at < payload.observedAt) delete writes.confirmed;
@@ -149,11 +156,13 @@ export function saveSetting(
 ): Thunk<Promise<SaveOutcome>> {
   return (dispatch, getState) => {
     const id = ++lastIntentId;
+    const session = getState().settingWrites.session;
+    const stale = () => getState().settingWrites.session !== session;
     dispatch(queued({ key, intent: { id, ...pick(next) } }));
     let keys = queues.get(getState);
     if (!keys) queues.set(getState, (keys = new Map()));
     const run = (keys.get(key) ?? Promise.resolve())
-      .then(() => send(dispatch, getState, key, id, next))
+      .then(() => send(dispatch, getState, key, id, next, stale))
       .then((outcome) => {
         report(dispatch, getState, key, outcome, kind);
         return outcome;
@@ -219,10 +228,15 @@ async function send(
   key: string,
   id: number,
   next: SettingState,
+  stale: () => boolean,
 ): Promise<SaveOutcome> {
+  const dropped: SaveOutcome = { id, status: 'rejected', message: 'the session changed' };
+  // Queued by another session: never refresh or send it with the current staff member's token.
+  if (stale()) return dropped;
   let previous = serverStateOf(getState(), key);
   if (!previous) {
     await refresh(dispatch);
+    if (stale()) return dropped;
     previous = serverStateOf(getState(), key);
   }
 
@@ -231,6 +245,8 @@ async function send(
     : dispatch(settingsApi.endpoints.resetSetting.initiate(key));
   const result = await request;
   request.reset();
+  // The answer belongs to the previous session: it must not touch the state of the current one.
+  if (stale()) return dropped;
   const at = nextMoment();
 
   if (result.data) {
