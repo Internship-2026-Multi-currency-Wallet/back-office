@@ -2,7 +2,7 @@ import { configureStore } from '@reduxjs/toolkit';
 import { useDispatch, useSelector } from 'react-redux';
 import { authReducer, restoreSession, sessionChanged } from '../features/auth/authSlice';
 import { settingWritesReducer } from '../features/settings/settingWrites';
-import { onSessionChange } from '../graphql/session';
+import { loadSession, onSessionChange } from '../graphql/session';
 import { api } from './api';
 
 let detachSessionSync: (() => void) | undefined;
@@ -21,11 +21,14 @@ export function createStore() {
   });
 
   detachSessionSync?.(); // a replaced store (tests, hot reload) stops listening
+  // By session, not by staff id: a new login as the same staff member is a new session too; a refresh keeps it.
+  let sessionId = loadSession()?.sessionId;
   detachSessionSync = onSessionChange((session) => {
-    const identityChanged = store.getState().auth.staff?.id !== session?.staff.id;
+    const isNewSession = session?.sessionId !== sessionId;
+    sessionId = session?.sessionId;
     store.dispatch(sessionChanged(session?.staff ?? null));
-    // Nothing of the previous identity (or of the dev user) may stay cached.
-    if (identityChanged) store.dispatch(api.util.resetApiState());
+    // Nothing of the previous session (or of the dev user) may stay cached.
+    if (isNewSession) store.dispatch(api.util.resetApiState());
   });
   void store.dispatch(restoreSession());
   return store;

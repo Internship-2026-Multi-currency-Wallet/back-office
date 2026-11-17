@@ -1,0 +1,72 @@
+import { settingsApi } from '../features/settings/settingsApi';
+import { saveSetting } from '../features/settings/settingWrites';
+import { refreshSession } from '../graphql/client';
+import { clearSession, loadSession, SESSION_STORAGE_KEY, saveSession } from '../graphql/session';
+import { server } from '../mocks/server';
+import { ADMIN, signInForTest, testSession, walletCore } from '../test/auth';
+import { createStore } from './store';
+
+const KEY = 'auth.googleLogin';
+let release: () => void = () => undefined;
+afterEach(() => release());
+
+/** A signed-in store with cached settings and a pending (held) write of `KEY`. */
+async function storeWithData() {
+  signInForTest({ staff: ADMIN, expired: false });
+  const store = createStore();
+  await store.dispatch(settingsApi.endpoints.staffSettings.initiate());
+  const held = new Promise<void>((resolve) => (release = resolve));
+  server.use(
+    walletCore.mutation('UpdateSetting', async () => {
+      await held;
+    }),
+  );
+  void store.dispatch(saveSetting(KEY, { value: false, overridden: true }));
+  await vi.waitFor(() => expect(store.getState().settingWrites.keys[KEY]?.intents).toHaveLength(1));
+  return store;
+}
+
+const cachedSettings = (store: ReturnType<typeof createStore>) =>
+  Object.values(store.getState().api.queries).find(
+    (query) => query?.endpointName === 'staffSettings' && query.data !== undefined,
+  );
+
+describe('the store drops cached data of a previous session', () => {
+  it('log out and log in again as the same staff member', async () => {
+    const store = await storeWithData();
+
+    clearSession();
+    saveSession(testSession(ADMIN));
+
+    expect(cachedSettings(store)).toBeUndefined();
+    expect(store.getState().settingWrites.keys).toEqual({});
+    expect(store.getState().auth.staff).toEqual(ADMIN);
+  });
+
+  it('late storage events: another tab already logged out and in again as the same staff member', async () => {
+    const store = await storeWithData();
+
+    // Both events (removal, then the new login) arrive after the other tab finished: each reads the new session.
+    localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(testSession(ADMIN)));
+    window.dispatchEvent(new StorageEvent('storage', { key: SESSION_STORAGE_KEY }));
+    window.dispatchEvent(new StorageEvent('storage', { key: SESSION_STORAGE_KEY }));
+
+    expect(cachedSettings(store)).toBeUndefined();
+    expect(store.getState().settingWrites.keys).toEqual({});
+    expect(store.getState().auth.staff).toEqual(ADMIN);
+  });
+
+  it('keeps everything on a refresh: a new access token, the same session', async () => {
+    signInForTest({ staff: ADMIN, expired: true });
+    const store = createStore();
+    await vi.waitFor(() => expect(store.getState().auth.status).toBe('authenticated'));
+    await store.dispatch(settingsApi.endpoints.staffSettings.initiate());
+    const before = loadSession()!;
+
+    await expect(refreshSession()).resolves.toBe(true);
+
+    expect(loadSession()?.accessToken).not.toBe(before.accessToken);
+    expect(loadSession()?.sessionId).toBe(before.sessionId);
+    expect(cachedSettings(store)).toBeDefined();
+  });
+});
