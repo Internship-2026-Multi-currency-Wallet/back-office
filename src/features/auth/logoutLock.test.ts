@@ -87,6 +87,24 @@ describe('staffLogout takes the session lock', () => {
     expect(hasRefreshCookie()).toBe(true);
     expect(loadSession()?.staff.id).toBe('staff-admin');
   });
+
+  it('a logout queued behind a running login (another tab) does not revoke that login', async () => {
+    signInForTest();
+    const before = loadSession()!.sessionId;
+    const calls = trackAuthCalls('StaffLogin');
+    const loggingIn = staffLogin({ email: 'admin@example.com', password: MOCK_PASSWORD });
+    await vi.waitFor(() => expect(calls.order).toContain('StaffLogin:start')); // it holds the lock
+
+    clearSession(); // this tab logs out meanwhile
+    const loggingOut = staffLogout();
+    calls.release();
+
+    await expect(loggingIn).resolves.toMatchObject({ id: 'staff-admin' });
+    await expect(loggingOut).resolves.toBe(false);
+    expect(calls.order).toEqual(['StaffLogin:start', 'StaffLogin:end']); // no StaffLogout sent
+    expect(loadSession()?.sessionId).not.toBe(before);
+    expect(hasRefreshCookie()).toBe(true);
+  });
 });
 
 describe('a hung login or logout request', () => {

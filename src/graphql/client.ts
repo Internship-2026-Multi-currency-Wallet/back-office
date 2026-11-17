@@ -44,10 +44,10 @@ function httpClient(service: Service): GraphQLClient {
   if (!client) {
     // Absolute URL (graphql-request needs one); relative paths resolve against the page.
     const url = new URL(httpUrls[service], globalThis.location?.href).toString();
-    // Only wallet-core owns the staff refresh cookie; other services get no credentials.
+    // Only wallet-core owns the staff refresh cookie; other services never get cookies, even on the same site.
     client = new GraphQLClient(url, {
       headers,
-      ...(service === 'walletCore' && { credentials: 'include' as const }),
+      credentials: service === 'walletCore' ? 'include' : 'omit',
     });
     httpClients.set(service, client);
   }

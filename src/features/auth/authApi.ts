@@ -1,6 +1,7 @@
 import type { StaffLoginInput } from '../../gql/wallet-core/graphql';
 import { request, type RequestOptions, SESSION_TIMEOUT_MS } from '../../graphql/client';
 import {
+  loadSession,
   saveSession,
   type SessionStaff,
   sessionFromPayload,
@@ -36,12 +37,13 @@ export function staffLogin(input: StaffLoginInput): Promise<SessionStaff> {
 }
 
 /**
- * Revokes the refresh session on the server and clears its cookie. Under the session lock: it waits for a running
- * refresh (and sends the rotated cookie), and a later login keeps its new cookie.
+ * Revokes the refresh session on the server and clears its cookie; call it after `clearSession()`. Under the session
+ * lock: it waits for a running refresh (and sends the rotated cookie), and a later login keeps its new cookie.
  */
 export function staffLogout(): Promise<boolean> {
-  return withSessionLock(
-    async () =>
-      (await request('walletCore', staffLogoutMutation, undefined, sessionCall())).staffLogout,
-  );
+  return withSessionLock(async () => {
+    // A login (e.g. in another tab) finished while this waited: the cookie is now its own, never revoke it.
+    if (loadSession()) return false;
+    return (await request('walletCore', staffLogoutMutation, undefined, sessionCall())).staffLogout;
+  });
 }

@@ -1,6 +1,7 @@
 import { act, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { HttpResponse } from 'msw';
+import { SESSION_TIMEOUT_MS } from '../../graphql/client';
 import { accessToken, loadSession } from '../../graphql/session';
 import { MOCK_PASSWORD } from '../../mocks/staff';
 import { server } from '../../mocks/server';
@@ -131,6 +132,29 @@ describe('session after a reload', () => {
     expect(await currentStaff()).toHaveTextContent('admin@example.com');
     expect(router.state.location.pathname).toBe('/');
     expect(loadSession()).not.toBeNull();
+  });
+
+  it('stops restoring and keeps the session when StaffMe never answers', async () => {
+    // The real 15 s timeout, shortened.
+    const timeout = AbortSignal.timeout.bind(AbortSignal);
+    vi.spyOn(AbortSignal, 'timeout').mockImplementation((ms) => {
+      expect(ms).toBe(SESSION_TIMEOUT_MS);
+      return timeout(50);
+    });
+    let unblock!: () => void;
+    const hung = new Promise<void>((resolve) => (unblock = resolve));
+    server.use(walletCore.query('StaffMe', () => hung));
+    signInForTest({ expired: true });
+    try {
+      renderApp('/');
+      await screen.findByText('Restoring your session…');
+      expect(await currentStaff()).toHaveTextContent('admin@example.com · ADMIN');
+      expect(screen.queryByText('Restoring your session…')).not.toBeInTheDocument();
+      expect(loadSession()?.staff).toEqual(ADMIN);
+    } finally {
+      unblock();
+      vi.restoreAllMocks();
+    }
   });
 
   it('ignores malformed stored data', async () => {

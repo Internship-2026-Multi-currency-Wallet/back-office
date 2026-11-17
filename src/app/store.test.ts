@@ -2,7 +2,7 @@ import { HttpResponse } from 'msw';
 import { restoreSession } from '../features/auth/authSlice';
 import { settingsApi } from '../features/settings/settingsApi';
 import { saveSetting } from '../features/settings/settingWrites';
-import { refreshSession } from '../graphql/client';
+import { refreshSession, SESSION_TIMEOUT_MS } from '../graphql/client';
 import { clearSession, loadSession, SESSION_STORAGE_KEY, saveSession } from '../graphql/session';
 import { server } from '../mocks/server';
 import { ADMIN, signInForTest, testSession, walletCore } from '../test/auth';
@@ -95,4 +95,38 @@ it('a late staffMe of the restored session does not overwrite a newer login as t
 
   expect(loadSession()).toEqual(newer);
   expect(store.getState().auth.staff).toEqual(ADMIN);
+});
+
+it('restoration settles when the StaffMe repeated after a refresh never answers', async () => {
+  // The 15 s timeouts fire exactly when the repeated StaffMe is on its way (not by the clock: no flakiness).
+  const timers: AbortController[] = [];
+  vi.spyOn(AbortSignal, 'timeout').mockImplementation((ms) => {
+    expect(ms).toBe(SESSION_TIMEOUT_MS);
+    timers.push(new AbortController());
+    return timers.at(-1)!.signal;
+  });
+  const store = createStore(); // nothing stored yet: its own restore ends at once
+  signInForTest({ staff: ADMIN, expired: true });
+  const stale = loadSession()!;
+  let calls = 0;
+  const held = new Promise<void>((resolve) => (release = resolve));
+  server.use(
+    walletCore.query('StaffMe', async () => {
+      calls += 1;
+      if (calls !== 2) return; // the first one: the mock answers UNAUTHENTICATED
+      timers.forEach((timer) => timer.abort(new DOMException('timed out', 'TimeoutError')));
+      await held;
+    }),
+  );
+
+  try {
+    await store.dispatch(restoreSession());
+  } finally {
+    vi.restoreAllMocks();
+  }
+
+  expect(calls).toBe(2);
+  expect(loadSession()?.sessionId).toBe(stale.sessionId); // refreshed and kept
+  expect(loadSession()?.accessToken).not.toBe(stale.accessToken);
+  expect(store.getState().auth).toEqual({ status: 'authenticated', staff: ADMIN });
 });

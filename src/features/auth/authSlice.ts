@@ -1,6 +1,6 @@
 import { createSlice, type PayloadAction } from '@reduxjs/toolkit';
 import type { AppDispatch, RootState } from '../../app/store';
-import { request } from '../../graphql/client';
+import { request, SESSION_TIMEOUT_MS } from '../../graphql/client';
 import {
   isAccessTokenExpired,
   loadSession,
@@ -50,14 +50,17 @@ export const restoreSession = () => async (dispatch: AppDispatch) => {
   const started = loadSession();
   if (!started) return;
   try {
-    const { staffMe } = await request('walletCore', staffMeQuery);
+    // Bounded, so the spinner cannot stay forever; a refresh on the way has its own timeout.
+    const { staffMe } = await request('walletCore', staffMeQuery, undefined, {
+      signal: AbortSignal.timeout(SESSION_TIMEOUT_MS),
+    });
     const current = loadSession();
     // Another login (e.g. in another tab, even as the same staff member) may have happened meanwhile: never mix them.
     if (current?.sessionId === started.sessionId && current.staff.id === staffMe.id) {
       saveSession({ ...current, staff: staffMe });
     }
   } catch {
-    // Network / 5xx: keep the session; the next request tries again.
+    // Network / 5xx / timeout: keep the session; the next request tries again.
   }
   dispatch(sessionChanged(loadSession()?.staff ?? null));
 };

@@ -1,4 +1,6 @@
 import { HttpResponse } from 'msw';
+import { graphql } from 'msw/graphql';
+import { config } from '../config-env';
 import { staffLoginMutation, staffMeQuery } from '../features/auth/auth.wallet-core';
 import { server } from '../mocks/server';
 import {
@@ -135,6 +137,32 @@ describe('refreshSession', () => {
     await expect(refreshSession()).resolves.toBe(false);
     expect(loadSession()).toBeNull();
   });
+});
+
+describe('HTTP credentials', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  // MSW in Node drops `credentials` from the request: read the options handed to `fetch` instead.
+  it.each([
+    { service: 'walletCore', url: config.walletCoreUrl, credentials: 'include' },
+    { service: 'ratesService', url: config.ratesServiceUrl, credentials: 'omit' },
+    { service: 'treasuryService', url: config.treasuryServiceUrl, credentials: 'omit' },
+  ] as const)(
+    '$service: credentials $credentials, the Bearer token still sent',
+    async ({ service, url, credentials }) => {
+      signInForTest();
+      server.use(
+        graphql.link(url).query('StaffMe', () => HttpResponse.json({ data: { staffMe: ADMIN } })),
+      );
+      const fetchSpy = vi.spyOn(globalThis, 'fetch');
+
+      await request(service, staffMeQuery);
+
+      const init = fetchSpy.mock.calls[0][1];
+      expect(init?.credentials).toBe(credentials);
+      expect(new Headers(init?.headers).get('authorization')).toBe(`Bearer ${accessToken()}`);
+    },
+  );
 });
 
 describe('toRequestError', () => {
