@@ -16,10 +16,6 @@ import { DataGrid, type GridColDef } from '@mui/x-data-grid';
 import { useCallback, useMemo, useState } from 'react';
 import { useAppDispatch, useAppSelector } from '../../app/store';
 import { config } from '../../config-env';
-import { RequirePermission } from '../permissions/RequirePermission';
-import { usePermissions } from '../permissions/usePermissions';
-import { useMeQuery } from '../system/systemApi';
-import { SETTINGS_PERMISSIONS } from './permissions';
 import { SettingControl } from './SettingControl';
 import { SettingHistoryDrawer } from './SettingHistoryDrawer';
 import { type StaffSetting, useStaffSettingsQuery } from './settingsApi';
@@ -126,49 +122,8 @@ function settingColumns(
   ];
 }
 
+/** The route requires `SETTINGS_PERMISSIONS` (`app/routes.tsx`). */
 export function SettingsPage() {
-  return (
-    <RequirePermission permission={SETTINGS_PERMISSIONS} fallback={<NoAccess />}>
-      <ClientSettings />
-    </RequirePermission>
-  );
-}
-
-function NoAccess() {
-  const { error, refetch, isFetching } = useMeQuery();
-  const { permissions } = usePermissions();
-  const missing = SETTINGS_PERMISSIONS.filter((permission) => !permissions.includes(permission));
-  if (error?.code === 'UNAUTHENTICATED') {
-    return (
-      <Alert severity="error">
-        Not signed in (UNAUTHENTICATED). Check VITE_DEV_USER and that wallet-core runs with
-        DEV_AUTH=true.
-      </Alert>
-    );
-  }
-  if (error) {
-    return (
-      <Alert
-        severity="error"
-        action={
-          <Button color="inherit" size="small" onClick={() => refetch()} disabled={isFetching}>
-            Retry
-          </Button>
-        }
-      >
-        Could not load your profile: {error.message}
-      </Alert>
-    );
-  }
-  return (
-    <Alert severity="warning">
-      You need the {missing.join(' and ')} {missing.length > 1 ? 'permissions' : 'permission'} to
-      manage settings.
-    </Alert>
-  );
-}
-
-function ClientSettings() {
   const { data, isLoading, isFetching, error, refetch } = useStaffSettingsQuery(undefined, FRESH);
   const writes = useAppSelector((state) => state.settingWrites);
   const dispatch = useAppDispatch();

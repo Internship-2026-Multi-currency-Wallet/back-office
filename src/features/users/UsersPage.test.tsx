@@ -14,7 +14,7 @@ describe('UsersPage', () => {
     expect(screen.getByRole('button', { name: 'Add user' })).toBeInTheDocument();
   });
 
-  it('hides the page without bo:users', async () => {
+  it('shows No Access without bo:users (dev user)', async () => {
     server.use(
       graphql.link(config.walletCoreUrl).query('Me', () =>
         HttpResponse.json({
@@ -23,7 +23,7 @@ describe('UsersPage', () => {
       ),
     );
     renderApp('/users');
-    expect(await screen.findByText(/You need the bo:users permission/)).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'No Access' })).toBeInTheDocument();
     expect(screen.queryByRole('grid')).not.toBeInTheDocument();
   });
 });

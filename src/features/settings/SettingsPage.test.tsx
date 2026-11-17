@@ -391,9 +391,8 @@ describe('SettingsPage', () => {
     );
     renderApp('/settings');
 
-    expect(
-      await screen.findByText(/You need the bo:settings:modify permission/),
-    ).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'No Access' })).toBeInTheDocument();
+    expect(screen.getByText(/You need the bo:settings:modify permission\./)).toBeInTheDocument();
     expect(screen.queryByRole('grid')).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Settings' })).not.toBeInTheDocument();
   });
@@ -410,9 +409,7 @@ describe('SettingsPage', () => {
     );
     renderApp('/settings');
 
-    expect(
-      await screen.findByText('You need the bo:settings permission to manage settings.'),
-    ).toBeInTheDocument();
+    expect(await screen.findByText(/You need the bo:settings permission\./)).toBeInTheDocument();
     expect(screen.queryByRole('grid')).not.toBeInTheDocument();
   });
 
@@ -428,7 +425,9 @@ describe('SettingsPage', () => {
     renderApp('/settings');
 
     expect(await screen.findByText(/Not signed in \(UNAUTHENTICATED\)/)).toBeInTheDocument();
-    expect(screen.queryByText(/You need the bo:settings:modify/)).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Could not check access' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'No Access' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/You need the/)).not.toBeInTheDocument();
   });
 
   it('offers a retry when the profile cannot be loaded for another reason', async () => {
@@ -438,6 +437,7 @@ describe('SettingsPage', () => {
     renderApp('/settings');
 
     expect(await screen.findByText(/Could not load your profile/)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Could not check access' })).toBeInTheDocument();
     expect(screen.queryByText(/Not signed in/)).not.toBeInTheDocument();
 
     const retry = screen.getByRole('button', { name: 'Retry' });
