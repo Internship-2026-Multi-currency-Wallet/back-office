@@ -31,3 +31,9 @@ export const staffMeQuery = graphql(`
     }
   }
 `);
+
+export const acceptStaffInvitationMutation = graphql(`
+  mutation AcceptStaffInvitation($input: AcceptStaffInvitationInput!) {
+    acceptStaffInvitation(input: $input)
+  }
+`);

@@ -2,6 +2,8 @@ import { HttpResponse } from 'msw';
 import { type GraphQLResponseBody, graphql } from 'msw/graphql';
 import { config } from '../config-env';
 import type {
+  AcceptStaffInvitationMutation,
+  AcceptStaffInvitationMutationVariables,
   StaffLoginMutation,
   StaffLoginMutationVariables,
   StaffLogoutMutation,
@@ -17,6 +19,10 @@ import type {
 const walletCore = graphql.link(config.walletCoreUrl);
 
 export const MOCK_PASSWORD = 'Admin1234!';
+/** Works once per reset, like a real invitation link: `/accept-invitation?token=mock-invitation`. */
+export const MOCK_INVITATION_TOKEN = 'mock-invitation';
+
+let invitationUsed = false;
 
 const ACCESS_TTL_MS = 15 * 60 * 1000;
 const LOCK_MS = 15 * 60 * 1000;
@@ -60,6 +66,7 @@ let staff = initialStaff();
 
 export function resetMockStaff(): void {
   staff = initialStaff();
+  invitationUsed = false;
   clearRefreshCookie();
 }
 
@@ -137,6 +144,26 @@ export const staffAuthHandlers = [
       member.lockedUntil = null;
       setRefreshCookie(member.id);
       return HttpResponse.json({ data: { staffLogin: payload(member) } });
+    },
+  ),
+
+  walletCore.mutation<AcceptStaffInvitationMutation, AcceptStaffInvitationMutationVariables>(
+    'AcceptStaffInvitation',
+    ({ variables }) => {
+      const { token, password } = variables.input;
+      // Unknown, used, expired and replaced tokens look the same, like on wallet-core.
+      if (token !== MOCK_INVITATION_TOKEN || invitationUsed) {
+        return fail('INVALID_INVITATION', 'Invitation is invalid or expired');
+      }
+      const strong =
+        password.length >= 8 &&
+        password.length <= 128 &&
+        /\d/.test(password) &&
+        /\p{Lu}/u.test(password) &&
+        /[^\p{L}\p{N}]/u.test(password);
+      if (!strong) return fail('BAD_USER_INPUT', 'Password is too weak', { field: 'password' });
+      invitationUsed = true;
+      return HttpResponse.json({ data: { acceptStaffInvitation: true } });
     },
   ),
 

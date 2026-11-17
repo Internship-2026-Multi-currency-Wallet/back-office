@@ -22,6 +22,22 @@ export function describeLoginError(error: Partial<GraphQLRequestError>): string 
   }
 }
 
+/** Errors of wallet-core `acceptStaffInvitation`. Texts are ours: the server `message` is for developers. */
+export function describeInvitationError(error: Partial<GraphQLRequestError>): string {
+  switch (error.code) {
+    case 'INVALID_INVITATION':
+      return 'This invitation link is invalid, already used or expired. Ask an administrator to send a new one.';
+    case 'BAD_USER_INPUT':
+      return error.extensions?.field === 'password'
+        ? 'The password does not meet the requirements.'
+        : 'This invitation link is invalid. Open the link from the invitation email again.';
+    case undefined:
+      return 'Could not reach the server. Check your connection and try again.';
+    default:
+      return 'Something went wrong. Please try again.';
+  }
+}
+
 function formatTime(value: string | undefined): string | null {
   if (!value) return null;
   const date = new Date(value);

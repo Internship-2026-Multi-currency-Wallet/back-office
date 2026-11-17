@@ -17,6 +17,7 @@ type Documents = {
     "\n  mutation StaffLogin($input: StaffLoginInput!) {\n    staffLogin(input: $input) {\n      accessToken\n      accessTokenExpiresAt\n      staff {\n        id\n        email\n        role\n        permissions\n      }\n    }\n  }\n": typeof types.StaffLoginDocument,
     "\n  mutation StaffLogout {\n    staffLogout\n  }\n": typeof types.StaffLogoutDocument,
     "\n  query StaffMe {\n    staffMe {\n      id\n      email\n      role\n      permissions\n    }\n  }\n": typeof types.StaffMeDocument,
+    "\n  mutation AcceptStaffInvitation($input: AcceptStaffInvitationInput!) {\n    acceptStaffInvitation(input: $input)\n  }\n": typeof types.AcceptStaffInvitationDocument,
     "\n  query StaffSettings {\n    staffSettings {\n      key\n      type\n      allowedValues\n      public\n      value\n      defaultValue\n      overridden\n    }\n  }\n": typeof types.StaffSettingsDocument,
     "\n  query SettingHistory($key: String, $limit: Int!, $before: DateTime, $beforeId: ID) {\n    settingHistory(key: $key, limit: $limit, before: $before, beforeId: $beforeId) {\n      id\n      key\n      oldValue\n      newValue\n      changedBy\n      changedAt\n    }\n  }\n": typeof types.SettingHistoryDocument,
     "\n  mutation UpdateSetting($key: String!, $value: JSON!) {\n    updateSetting(key: $key, value: $value) {\n      key\n      value\n      overridden\n    }\n  }\n": typeof types.UpdateSettingDocument,
@@ -29,6 +30,7 @@ const documents: Documents = {
     "\n  mutation StaffLogin($input: StaffLoginInput!) {\n    staffLogin(input: $input) {\n      accessToken\n      accessTokenExpiresAt\n      staff {\n        id\n        email\n        role\n        permissions\n      }\n    }\n  }\n": types.StaffLoginDocument,
     "\n  mutation StaffLogout {\n    staffLogout\n  }\n": types.StaffLogoutDocument,
     "\n  query StaffMe {\n    staffMe {\n      id\n      email\n      role\n      permissions\n    }\n  }\n": types.StaffMeDocument,
+    "\n  mutation AcceptStaffInvitation($input: AcceptStaffInvitationInput!) {\n    acceptStaffInvitation(input: $input)\n  }\n": types.AcceptStaffInvitationDocument,
     "\n  query StaffSettings {\n    staffSettings {\n      key\n      type\n      allowedValues\n      public\n      value\n      defaultValue\n      overridden\n    }\n  }\n": types.StaffSettingsDocument,
     "\n  query SettingHistory($key: String, $limit: Int!, $before: DateTime, $beforeId: ID) {\n    settingHistory(key: $key, limit: $limit, before: $before, beforeId: $beforeId) {\n      id\n      key\n      oldValue\n      newValue\n      changedBy\n      changedAt\n    }\n  }\n": types.SettingHistoryDocument,
     "\n  mutation UpdateSetting($key: String!, $value: JSON!) {\n    updateSetting(key: $key, value: $value) {\n      key\n      value\n      overridden\n    }\n  }\n": types.UpdateSettingDocument,
@@ -64,6 +66,10 @@ export function graphql(source: "\n  mutation StaffLogout {\n    staffLogout\n  
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
 export function graphql(source: "\n  query StaffMe {\n    staffMe {\n      id\n      email\n      role\n      permissions\n    }\n  }\n"): (typeof documents)["\n  query StaffMe {\n    staffMe {\n      id\n      email\n      role\n      permissions\n    }\n  }\n"];
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n  mutation AcceptStaffInvitation($input: AcceptStaffInvitationInput!) {\n    acceptStaffInvitation(input: $input)\n  }\n"): (typeof documents)["\n  mutation AcceptStaffInvitation($input: AcceptStaffInvitationInput!) {\n    acceptStaffInvitation(input: $input)\n  }\n"];
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
