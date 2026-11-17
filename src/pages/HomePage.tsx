@@ -34,7 +34,8 @@ export function HomePage() {
 
             {me.data && (
               <Typography data-testid="me">
-                Dev user: {me.data.id} (permissions: {me.data.permissions.join(', ') || 'none'})
+                {me.data.strategy === 'dev' ? 'Dev user' : 'Signed in'}: {me.data.id} (permissions:{' '}
+                {me.data.permissions.join(', ') || 'none'})
               </Typography>
             )}
             {me.error && (

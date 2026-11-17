@@ -112,6 +112,22 @@ The Docker image (nginx) is for the local stack only.
 
 Every screen must work with mocks — that is how you build UI before its backend exists.
 
+## Staff login — `src/features/auth`, `src/graphql/session.ts`
+
+Staff log in at `/login` (`staffLogin`); every other page needs a session (`<RequireAuth>`).
+
+- The access token, its expiry and the staff member (`id`, `email`, `role`, `permissions` from wallet-core) are kept
+  in `localStorage` under `wallet.staff.session`. The refresh token is the HttpOnly `staff_refresh_token` cookie of
+  wallet-core: requests to wallet-core are sent with `credentials: 'include'`.
+- `request()` sends `Authorization: Bearer <token>`. On `UNAUTHENTICATED` it calls `staffRefreshSession` once (one
+  refresh per tab, ordered across tabs by a Web Lock) and repeats the request once. `INVALID_REFRESH_TOKEN` (the
+  8-hour session is over, a role change, a deactivation) ends the session; a network error or 5xx does not.
+- On start a stored session loads `staffMe` into the same stored session, the only source of the header and the
+  permissions. Log out or another staff member (also in another tab) clears every cached query.
+- **Dev mode:** without a session, `VITE_DEV_USER` still opens the app with the dev header, as before; a staff
+  session wins over it.
+- Mocks: `admin@example.com` (ADMIN) and `support@example.com` (SUPPORT), password `Admin1234!` (fake).
+
 ## Permissions — `<RequirePermission>`
 
 Staff permissions are strings like `bo:users` (view) and `bo:users:modify` (change). The component shows its children
@@ -124,8 +140,8 @@ only when the current user (from `me`) has all listed permissions:
 ```
 
 Use it for menu items, routes and buttons. It is UX only — the backend enforces the same permission with
-`@RequirePermission`. In dev mode the permissions come from `VITE_DEV_USER`; once real login exists they come from
-the token, and this component does not change. `hasPermissions()` is the pure helper behind it.
+`@RequirePermission`. With a staff session the permissions come from `staffMe`; in dev mode from `me`
+(`VITE_DEV_USER`). `hasPermissions()` is the pure helper behind it.
 
 ## Project layout
 

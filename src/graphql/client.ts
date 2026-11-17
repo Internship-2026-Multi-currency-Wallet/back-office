@@ -3,7 +3,17 @@ import { ClientError, GraphQLClient } from 'graphql-request';
 import { type Client, createClient } from 'graphql-ws';
 import { print } from 'graphql';
 import { config } from '../config-env';
+import type { StaffRefreshSessionMutation } from '../gql/wallet-core/graphql';
 import { authorizationHeader } from './dev-auth';
+import {
+  accessToken,
+  clearSession,
+  loadSession,
+  saveSession,
+  sessionFromPayload,
+  withSessionLock,
+} from './session';
+import { staffRefreshSessionMutation } from './session.wallet-core';
 
 /** Backends this app talks to. */
 export type Service = 'walletCore' | 'ratesService' | 'treasuryService';
@@ -19,7 +29,10 @@ const wsUrls: Partial<Record<Service, string>> = {
   treasuryService: config.treasuryServiceWsUrl,
 };
 
+/** A signed-in staff session wins; the dev user is only the fallback while nobody is signed in. */
 function headers(): Record<string, string> {
+  const token = accessToken();
+  if (token) return { Authorization: `Bearer ${token}` };
   const authorization = authorizationHeader(config.devUser);
   return authorization ? { Authorization: authorization } : {};
 }
@@ -31,7 +44,11 @@ function httpClient(service: Service): GraphQLClient {
   if (!client) {
     // Absolute URL (graphql-request needs one); relative paths resolve against the page.
     const url = new URL(httpUrls[service], globalThis.location?.href).toString();
-    client = new GraphQLClient(url, { headers });
+    // Only wallet-core owns the staff refresh cookie; other services get no credentials.
+    client = new GraphQLClient(url, {
+      headers,
+      ...(service === 'walletCore' && { credentials: 'include' as const }),
+    });
     httpClients.set(service, client);
   }
   return client;
@@ -41,28 +58,118 @@ function httpClient(service: Service): GraphQLClient {
 export interface GraphQLRequestError {
   message: string;
   code?: string;
+  /** Only `lockedUntil` (ACCOUNT_LOCKED) and `field` (BAD_USER_INPUT) from the server's extensions. */
+  extensions?: Record<string, string>;
 }
+
+/** Only contract-approved string extensions may enter Redux: server diagnostics can contain input. */
+const ALLOWED_EXTENSIONS = ['lockedUntil', 'field'] as const;
 
 export function toRequestError(error: unknown): GraphQLRequestError {
   if (error instanceof ClientError) {
     const first = error.response.errors?.[0];
+    const raw = first?.extensions ?? {};
+    const extensions = Object.fromEntries(
+      ALLOWED_EXTENSIONS.flatMap((key) =>
+        typeof raw[key] === 'string' ? [[key, raw[key] as string]] : [],
+      ),
+    );
     return {
-      message: first?.message ?? error.message,
-      code: (first?.extensions?.code as string | undefined) ?? String(error.response.status),
+      // Never `error.message`: graphql-request puts the request with its variables (a password) in it.
+      message: first?.message ?? `Request failed with HTTP ${error.response.status}`,
+      code: (raw.code as string | undefined) ?? String(error.response.status),
+      ...(Object.keys(extensions).length > 0 && { extensions }),
     };
   }
   return { message: error instanceof Error ? error.message : String(error) };
 }
 
-/** Queries and mutations over HTTP (graphql-request). Fully typed by the generated documents. */
-export function request<TResult, TVariables extends Record<string, unknown>>(
+export function hasErrorCode(error: unknown, code: string): boolean {
+  return (
+    error instanceof ClientError &&
+    !!error.response.errors?.some((e) => e.extensions?.code === code)
+  );
+}
+
+export interface RequestOptions {
+  /** Login and logout must not refresh: their `UNAUTHENTICATED` is final. */
+  retryOnUnauthenticated?: boolean;
+}
+
+/**
+ * Queries and mutations over HTTP (graphql-request). Fully typed by the generated documents.
+ * An expired access token (`UNAUTHENTICATED`) is refreshed once and the request is repeated once.
+ */
+export async function request<TResult, TVariables extends Record<string, unknown>>(
   service: Service,
   document: TypedDocumentNode<TResult, TVariables>,
-  ...variables: TVariables extends Record<string, never> ? [] : [TVariables]
+  ...[variables, options]: TVariables extends Record<string, never>
+    ? [variables?: TVariables, options?: RequestOptions]
+    : [variables: TVariables, options?: RequestOptions]
 ): Promise<TResult> {
-  return httpClient(service).request<TResult>({
-    document,
-    variables: variables[0] as Record<string, unknown> | undefined,
+  const send = () =>
+    httpClient(service).request<TResult>({
+      document,
+      variables: variables as Record<string, unknown> | undefined,
+    });
+  const used = loadSession();
+  try {
+    return await send();
+  } catch (error) {
+    if (
+      !used ||
+      options?.retryOnUnauthenticated === false ||
+      !hasErrorCode(error, 'UNAUTHENTICATED')
+    ) {
+      throw error;
+    }
+    // Another request may have refreshed already: then just repeat with its token.
+    if (accessToken() === used.accessToken && !(await refreshSession())) throw error;
+    // Signed out or another staff member signed in meanwhile: never repeat the request as them.
+    if (loadSession()?.staff.id !== used.staff.id) throw error;
+    return send();
+  }
+}
+
+/** wallet-core: the staff refresh cookie is missing, expired (8 h), rotated or revoked. */
+export const INVALID_REFRESH_TOKEN = 'INVALID_REFRESH_TOKEN';
+/** A hung refresh must not hold the lock (and every tab waiting on it) forever. */
+const REFRESH_TIMEOUT_MS = 15_000;
+
+let refreshing: Promise<boolean> | null = null;
+
+/**
+ * `true` = a valid session exists now; `false` = it is over (and cleared). Network errors, 5xx and timeouts are
+ * thrown and keep the session. One refresh per tab at a time; the lock orders it with other tabs.
+ */
+export function refreshSession(): Promise<boolean> {
+  refreshing ??= refreshWithLock().finally(() => (refreshing = null));
+  return refreshing;
+}
+
+async function refreshWithLock(): Promise<boolean> {
+  const tokenAtStart = accessToken();
+  return withSessionLock(async () => {
+    // Changed while we waited: another tab refreshed (reuse its token), or somebody logged out / in.
+    // Without a stored session there is nothing to refresh: the cookie alone never signs anybody in.
+    if (accessToken() !== tokenAtStart || tokenAtStart === null) return accessToken() !== null;
+    let payload: StaffRefreshSessionMutation['staffRefreshSession'];
+    try {
+      ({ staffRefreshSession: payload } = await httpClient(
+        'walletCore',
+      ).request<StaffRefreshSessionMutation>({
+        document: staffRefreshSessionMutation,
+        signal: AbortSignal.timeout(REFRESH_TIMEOUT_MS),
+      }));
+    } catch (error) {
+      if (!hasErrorCode(error, INVALID_REFRESH_TOKEN)) throw error;
+      if (accessToken() === tokenAtStart) clearSession();
+      return false;
+    }
+    // A logout or login during the request wins over this answer.
+    if (accessToken() !== tokenAtStart) return accessToken() !== null;
+    saveSession(sessionFromPayload(payload));
+    return true;
   });
 }
 

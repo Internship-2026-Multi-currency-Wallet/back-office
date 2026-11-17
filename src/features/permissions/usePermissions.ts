@@ -1,11 +1,15 @@
+import { useAppSelector } from '../../app/store';
+import { selectStaff } from '../auth/authSlice';
 import { useMeQuery } from '../system/systemApi';
 
 /**
- * Permissions of the current staff member, from `me` (wallet-core).
- * In dev mode they come from `VITE_DEV_USER`, e.g. `100:bo:users,bo:users:modify`.
+ * Permissions of the current staff member, as the backend gave them: from the staff session (`staffMe`), or in
+ * dev mode (no session, `VITE_DEV_USER`) from `me`.
  */
 export function usePermissions(): { permissions: string[]; isLoading: boolean } {
-  const { data, isLoading } = useMeQuery();
+  const staff = useAppSelector(selectStaff);
+  const { data, isLoading } = useMeQuery(undefined, { skip: staff !== null });
+  if (staff) return { permissions: staff.permissions, isLoading: false };
   return { permissions: data?.permissions ?? [], isLoading };
 }
 

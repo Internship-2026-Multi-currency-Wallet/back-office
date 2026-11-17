@@ -1,6 +1,7 @@
 import { AppBar, Box, Button, Chip, Container, Toolbar, Typography } from '@mui/material';
 import { Link as RouterLink, Outlet } from 'react-router';
 import { config } from '../config-env';
+import { CurrentStaff } from '../features/auth/CurrentStaff';
 import { RequirePermission } from '../features/permissions/RequirePermission';
 import { SETTINGS_PERMISSIONS } from '../features/settings/permissions';
 
@@ -33,6 +34,7 @@ export function AppLayout() {
               Settings
             </Button>
           </RequirePermission>
+          <CurrentStaff />
         </Toolbar>
       </AppBar>
       <Container maxWidth="lg" sx={{ py: 4 }}>
