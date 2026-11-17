@@ -52,8 +52,10 @@ export const restoreSession = () => async (dispatch: AppDispatch) => {
   try {
     const { staffMe } = await request('walletCore', staffMeQuery);
     const current = loadSession();
-    // Another staff member may have signed in meanwhile (e.g. in another tab): never mix the two.
-    if (current?.staff.id === staffMe.id) saveSession({ ...current, staff: staffMe });
+    // Another login (e.g. in another tab, even as the same staff member) may have happened meanwhile: never mix them.
+    if (current?.sessionId === started.sessionId && current.staff.id === staffMe.id) {
+      saveSession({ ...current, staff: staffMe });
+    }
   } catch {
     // Network / 5xx: keep the session; the next request tries again.
   }

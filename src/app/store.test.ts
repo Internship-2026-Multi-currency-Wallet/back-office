@@ -1,3 +1,5 @@
+import { HttpResponse } from 'msw';
+import { restoreSession } from '../features/auth/authSlice';
 import { settingsApi } from '../features/settings/settingsApi';
 import { saveSetting } from '../features/settings/settingWrites';
 import { refreshSession } from '../graphql/client';
@@ -69,4 +71,28 @@ describe('the store drops cached data of a previous session', () => {
     expect(loadSession()?.sessionId).toBe(before.sessionId);
     expect(cachedSettings(store)).toBeDefined();
   });
+});
+
+it('a late staffMe of the restored session does not overwrite a newer login as the same staff member', async () => {
+  const store = createStore(); // nothing stored yet: its own restore ends at once
+  signInForTest({ staff: ADMIN });
+  let answer!: () => void;
+  const held = new Promise<void>((resolve) => (answer = resolve));
+  server.use(
+    walletCore.query('StaffMe', async () => {
+      await held;
+      return HttpResponse.json({
+        data: { staffMe: { ...ADMIN, role: 'SUPPORT', permissions: ['bo'] } },
+      });
+    }),
+  );
+  const restoring = store.dispatch(restoreSession());
+
+  const newer = testSession(ADMIN); // logged out and in again meanwhile
+  saveSession(newer);
+  answer();
+  await restoring;
+
+  expect(loadSession()).toEqual(newer);
+  expect(store.getState().auth.staff).toEqual(ADMIN);
 });
