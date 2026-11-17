@@ -1,4 +1,4 @@
-import type { StaffLoginInput } from '../../gql/wallet-core/graphql';
+import type { AcceptStaffInvitationInput, StaffLoginInput } from '../../gql/wallet-core/graphql';
 import { request, type RequestOptions, SESSION_TIMEOUT_MS } from '../../graphql/client';
 import {
   loadSession,
@@ -7,7 +7,11 @@ import {
   sessionFromPayload,
   withSessionLock,
 } from '../../graphql/session';
-import { staffLoginMutation, staffLogoutMutation } from './auth.wallet-core';
+import {
+  acceptStaffInvitationMutation,
+  staffLoginMutation,
+  staffLogoutMutation,
+} from './auth.wallet-core';
 
 // Plain functions, not RTK Query mutations: a login or logout changes the identity, the store then dispatches
 // `resetApiState`, and that aborts every running mutation, so a mutation would report `AbortError` after success.
@@ -46,4 +50,15 @@ export function staffLogout(): Promise<boolean> {
     if (loadSession()) return false;
     return (await request('walletCore', staffLogoutMutation, undefined, sessionCall())).staffLogout;
   });
+}
+
+/** Does not change the session identity, so it needs no session lock. */
+export async function acceptStaffInvitation(input: AcceptStaffInvitationInput): Promise<boolean> {
+  const { acceptStaffInvitation } = await request(
+    'walletCore',
+    acceptStaffInvitationMutation,
+    { input },
+    sessionCall(),
+  );
+  return acceptStaffInvitation;
 }

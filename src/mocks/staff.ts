@@ -2,6 +2,8 @@ import { HttpResponse } from 'msw';
 import { type GraphQLResponseBody, graphql } from 'msw/graphql';
 import { config } from '../config-env';
 import type {
+  AcceptStaffInvitationMutation,
+  AcceptStaffInvitationMutationVariables,
   StaffLoginMutation,
   StaffLoginMutationVariables,
   StaffLogoutMutation,
@@ -17,6 +19,8 @@ import type {
 const walletCore = graphql.link(config.walletCoreUrl);
 
 export const MOCK_PASSWORD = 'Admin1234!';
+export const MOCK_INVITATION_TOKEN = 'mock-invitation';
+export const MOCK_INVITED_EMAIL = 'invited@example.com';
 
 const ACCESS_TTL_MS = 15 * 60 * 1000;
 const LOCK_MS = 15 * 60 * 1000;
@@ -35,6 +39,9 @@ interface MockStaff {
   id: string;
   email: string;
   role: StaffRole;
+  status: 'INVITED' | 'ACTIVE';
+  password: string | null;
+  invitationToken: string | null;
   failedLogins: number;
   lockedUntil: number | null;
 }
@@ -44,6 +51,9 @@ const initialStaff = (): MockStaff[] => [
     id: 'staff-admin',
     email: 'admin@example.com',
     role: 'ADMIN',
+    status: 'ACTIVE',
+    password: MOCK_PASSWORD,
+    invitationToken: null,
     failedLogins: 0,
     lockedUntil: null,
   },
@@ -51,6 +61,19 @@ const initialStaff = (): MockStaff[] => [
     id: 'staff-support',
     email: 'support@example.com',
     role: 'SUPPORT',
+    status: 'ACTIVE',
+    password: MOCK_PASSWORD,
+    invitationToken: null,
+    failedLogins: 0,
+    lockedUntil: null,
+  },
+  {
+    id: 'staff-invited',
+    email: MOCK_INVITED_EMAIL,
+    role: 'SUPPORT',
+    status: 'INVITED',
+    password: null,
+    invitationToken: MOCK_INVITATION_TOKEN,
     failedLogins: 0,
     lockedUntil: null,
   },
@@ -117,14 +140,15 @@ export const staffAuthHandlers = [
     ({ variables }) => {
       const { email, password } = variables.input;
       const member = staff.find((s) => s.email === email.trim().toLowerCase());
-      // Unknown email and wrong password look the same on purpose.
-      if (!member) return fail('INVALID_CREDENTIALS', 'Invalid email or password');
+      // Unknown email, inactive account and wrong password look the same on purpose.
+      if (member?.status !== 'ACTIVE')
+        return fail('INVALID_CREDENTIALS', 'Invalid email or password');
       const locked = () => {
         const until = new Date(member.lockedUntil!).toISOString();
         return fail('ACCOUNT_LOCKED', 'Account is locked', { lockedUntil: until });
       };
       if (member.lockedUntil !== null && member.lockedUntil > Date.now()) return locked();
-      if (password !== MOCK_PASSWORD) {
+      if (password !== member.password) {
         member.failedLogins += 1;
         if (member.failedLogins < MAX_FAILED_LOGINS) {
           return fail('INVALID_CREDENTIALS', 'Invalid email or password');
@@ -137,6 +161,27 @@ export const staffAuthHandlers = [
       member.lockedUntil = null;
       setRefreshCookie(member.id);
       return HttpResponse.json({ data: { staffLogin: payload(member) } });
+    },
+  ),
+
+  walletCore.mutation<AcceptStaffInvitationMutation, AcceptStaffInvitationMutationVariables>(
+    'AcceptStaffInvitation',
+    ({ variables }) => {
+      const { token, password } = variables.input;
+      const strong =
+        password.length >= 8 &&
+        password.length <= 128 &&
+        /\d/.test(password) &&
+        /\p{Lu}/u.test(password) &&
+        /[^\p{L}\p{N}]/u.test(password);
+      // wallet-core checks the password before the token.
+      if (!strong) return fail('BAD_USER_INPUT', 'Password is too weak', { field: 'password' });
+      const member = staff.find((s) => s.status === 'INVITED' && s.invitationToken === token);
+      if (!member) return fail('INVALID_INVITATION', 'Invitation is invalid or expired');
+      member.status = 'ACTIVE';
+      member.password = password;
+      member.invitationToken = null;
+      return HttpResponse.json({ data: { acceptStaffInvitation: true } });
     },
   ),
 
