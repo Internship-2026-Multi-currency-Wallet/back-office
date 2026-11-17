@@ -94,6 +94,8 @@ export function hasErrorCode(error: unknown, code: string): boolean {
 export interface RequestOptions {
   /** Login and logout must not refresh: their `UNAUTHENTICATED` is final. */
   retryOnUnauthenticated?: boolean;
+  /** Cancels the HTTP request, e.g. `AbortSignal.timeout(SESSION_TIMEOUT_MS)`. */
+  signal?: AbortSignal;
 }
 
 /**
@@ -111,6 +113,7 @@ export async function request<TResult, TVariables extends Record<string, unknown
     httpClient(service).request<TResult>({
       document,
       variables: variables as Record<string, unknown> | undefined,
+      signal: options?.signal,
     });
   const used = loadSession();
   try {
@@ -133,8 +136,8 @@ export async function request<TResult, TVariables extends Record<string, unknown
 
 /** wallet-core: the staff refresh cookie is missing, expired (8 h), rotated or revoked. */
 export const INVALID_REFRESH_TOKEN = 'INVALID_REFRESH_TOKEN';
-/** A hung refresh must not hold the lock (and every tab waiting on it) forever. */
-const REFRESH_TIMEOUT_MS = 15_000;
+/** Login, refresh and logout hold the session lock: a hung one must not hold it (and every tab) forever. */
+export const SESSION_TIMEOUT_MS = 15_000;
 
 let refreshing: Promise<boolean> | null = null;
 
@@ -159,7 +162,7 @@ async function refreshWithLock(): Promise<boolean> {
         'walletCore',
       ).request<StaffRefreshSessionMutation>({
         document: staffRefreshSessionMutation,
-        signal: AbortSignal.timeout(REFRESH_TIMEOUT_MS),
+        signal: AbortSignal.timeout(SESSION_TIMEOUT_MS),
       }));
     } catch (error) {
       if (!hasErrorCode(error, INVALID_REFRESH_TOKEN)) throw error;

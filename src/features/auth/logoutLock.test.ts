@@ -1,9 +1,10 @@
-import { refreshSession } from '../../graphql/client';
+import { refreshSession, SESSION_TIMEOUT_MS, toRequestError } from '../../graphql/client';
 import { clearSession, loadSession } from '../../graphql/session';
 import { MOCK_PASSWORD } from '../../mocks/staff';
 import { server } from '../../mocks/server';
 import { signInForTest, walletCore } from '../../test/auth';
 import { staffLogin, staffLogout } from './authApi';
+import { describeLoginError } from './authErrors';
 
 /** jsdom has no Web Locks: a FIFO lock, like `navigator.locks.request` for one name. */
 function installFakeLocks() {
@@ -85,5 +86,64 @@ describe('staffLogout takes the session lock', () => {
     ]);
     expect(hasRefreshCookie()).toBe(true);
     expect(loadSession()?.staff.id).toBe('staff-admin');
+  });
+});
+
+describe('a hung login or logout request', () => {
+  let unblock: () => void;
+  let hung: Promise<void>;
+
+  beforeEach(() => {
+    // The real 15 s timeout, shortened: the request is really aborted by `AbortSignal.timeout`.
+    const timeout = AbortSignal.timeout.bind(AbortSignal);
+    vi.spyOn(AbortSignal, 'timeout').mockImplementation((ms) => {
+      expect(ms).toBe(SESSION_TIMEOUT_MS);
+      return timeout(50);
+    });
+    hung = new Promise<void>((resolve) => (unblock = resolve));
+    server.use(
+      walletCore.mutation('StaffLogin', async ({ variables }) => {
+        if (variables.input.password === 'Hang1234!') await hung;
+      }),
+    );
+  });
+  afterEach(() => {
+    unblock();
+    vi.restoreAllMocks();
+  });
+
+  it('login: is cancelled, stores nothing, shows a connection error and frees the lock', async () => {
+    const error: unknown = await staffLogin({
+      email: 'admin@example.com',
+      password: 'Hang1234!',
+    }).catch((e: unknown) => e);
+
+    expect((error as Error).name).toBe('TimeoutError');
+    expect(loadSession()).toBeNull();
+    const shown = toRequestError(error);
+    expect(describeLoginError(shown)).toBe(
+      'Could not reach the server. Check your connection and try again.',
+    );
+    expect(JSON.stringify(shown)).not.toContain('Hang1234!');
+    // The next operation under the lock runs.
+    await expect(staffLogout()).resolves.toBe(true);
+  });
+
+  it('logout: the local logout is immediate; the hung request is cancelled and frees the lock', async () => {
+    signInForTest();
+    server.use(
+      walletCore.mutation('StaffLogout', async () => {
+        await hung;
+      }),
+    );
+
+    clearSession();
+    const loggingOut = staffLogout().catch((e: unknown) => e);
+    expect(loadSession()).toBeNull();
+
+    expect(((await loggingOut) as Error).name).toBe('TimeoutError');
+    await expect(
+      staffLogin({ email: 'admin@example.com', password: MOCK_PASSWORD }),
+    ).resolves.toMatchObject({ id: 'staff-admin' });
   });
 });
