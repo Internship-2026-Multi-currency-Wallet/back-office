@@ -4,9 +4,17 @@ import { config } from '../config-env';
 import type { RatesServiceHealthQuery } from '../gql/rates-service/graphql';
 import type { TreasuryServiceHealthQuery } from '../gql/treasury-service/graphql';
 import type {
+  ChangeOwnStaffPasswordMutation,
+  ChangeOwnStaffPasswordMutationVariables,
+  ChangeStaffRoleMutation,
+  ChangeStaffRoleMutationVariables,
+  DeactivateStaffMutation,
+  DeactivateStaffMutationVariables,
   InviteStaffMutation,
   InviteStaffMutationVariables,
   MeQuery,
+  ResendStaffInvitationMutation,
+  ResendStaffInvitationMutationVariables,
   ResetSettingMutation,
   ResetSettingMutationVariables,
   SettingHistoryQuery,
@@ -114,6 +122,38 @@ export const handlers = [
     ({ request, variables }) =>
       asStaff(request, 'bo:staff:modify', () => ({
         inviteStaff: mockStaff.invite(variables.input.email, variables.input.role),
+      })),
+  ),
+
+  walletCore.mutation<ResendStaffInvitationMutation, ResendStaffInvitationMutationVariables>(
+    'ResendStaffInvitation',
+    ({ request, variables }) =>
+      asStaff(request, 'bo:staff:modify', () => ({
+        resendStaffInvitation: mockStaff.resendInvitation(String(variables.staffId)),
+      })),
+  ),
+
+  walletCore.mutation<ChangeStaffRoleMutation, ChangeStaffRoleMutationVariables>(
+    'ChangeStaffRole',
+    ({ request, variables }) =>
+      asStaff(request, 'bo:staff:modify', () => ({
+        changeStaffRole: mockStaff.changeRole(String(variables.staffId), variables.role),
+      })),
+  ),
+
+  walletCore.mutation<DeactivateStaffMutation, DeactivateStaffMutationVariables>(
+    'DeactivateStaff',
+    ({ request, variables }) =>
+      asStaff(request, 'bo:staff:modify', (actorId) => ({
+        deactivateStaff: mockStaff.deactivate(actorId, String(variables.staffId)),
+      })),
+  ),
+
+  walletCore.mutation<ChangeOwnStaffPasswordMutation, ChangeOwnStaffPasswordMutationVariables>(
+    'ChangeOwnStaffPassword',
+    ({ request, variables }) =>
+      asStaff(request, 'bo', (staffId) => ({
+        changeOwnStaffPassword: mockStaff.changeOwnPassword(staffId, variables.input),
       })),
   ),
 
