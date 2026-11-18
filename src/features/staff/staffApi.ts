@@ -1,9 +1,24 @@
 import { api, graphqlQuery } from '../../app/api';
+import type { GraphQLRequestError } from '../../graphql/client';
 import { request } from '../../graphql/client';
-import type { InviteStaffInput, StaffMembersQuery } from '../../gql/wallet-core/graphql';
-import { inviteStaffMutation, staffMembersQuery } from './staff.wallet-core';
+import type { InviteStaffInput, StaffMembersQuery, StaffRole } from '../../gql/wallet-core/graphql';
+import {
+  changeStaffRoleMutation,
+  deactivateStaffMutation,
+  inviteStaffMutation,
+  resendStaffInvitationMutation,
+  staffMembersQuery,
+} from './staff.wallet-core';
 
 export type StaffMember = StaffMembersQuery['staffMembers'][number];
+
+/**
+ * Refetch the list after a success, and also when wallet-core says the row is stale (deleted, or no longer invited):
+ * the list then shows the server state. Other errors change nothing on the server, so the list stays as it is.
+ */
+const STALE_ROW_CODES = ['STAFF_NOT_FOUND', 'NOT_INVITED'];
+const staffChanged = (result: unknown, error: GraphQLRequestError | undefined) =>
+  result || STALE_ROW_CODES.includes(error?.code ?? '') ? ['Staff' as const] : [];
 
 export const staffApi = api.enhanceEndpoints({ addTagTypes: ['Staff'] }).injectEndpoints({
   endpoints: (build) => ({
@@ -20,7 +35,41 @@ export const staffApi = api.enhanceEndpoints({ addTagTypes: ['Staff'] }).injectE
         ),
       invalidatesTags: (result) => (result ? ['Staff'] : []),
     }),
+
+    resendStaffInvitation: build.mutation<StaffMember, { staffId: string }>({
+      queryFn: (variables) =>
+        graphqlQuery(
+          async () =>
+            (await request('walletCore', resendStaffInvitationMutation, variables))
+              .resendStaffInvitation,
+        ),
+      invalidatesTags: staffChanged,
+    }),
+
+    changeStaffRole: build.mutation<StaffMember, { staffId: string; role: StaffRole }>({
+      queryFn: (variables) =>
+        graphqlQuery(
+          async () =>
+            (await request('walletCore', changeStaffRoleMutation, variables)).changeStaffRole,
+        ),
+      invalidatesTags: staffChanged,
+    }),
+
+    deactivateStaff: build.mutation<StaffMember, { staffId: string }>({
+      queryFn: (variables) =>
+        graphqlQuery(
+          async () =>
+            (await request('walletCore', deactivateStaffMutation, variables)).deactivateStaff,
+        ),
+      invalidatesTags: staffChanged,
+    }),
   }),
 });
 
-export const { useStaffMembersQuery, useInviteStaffMutation } = staffApi;
+export const {
+  useStaffMembersQuery,
+  useInviteStaffMutation,
+  useResendStaffInvitationMutation,
+  useChangeStaffRoleMutation,
+  useDeactivateStaffMutation,
+} = staffApi;

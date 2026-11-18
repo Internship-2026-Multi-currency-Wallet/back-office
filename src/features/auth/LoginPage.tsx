@@ -13,7 +13,8 @@ export function LoginPage() {
   const [error, setError] = useState<GraphQLRequestError | null>(null);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const from = (useLocation().state as { from?: string } | null)?.from ?? '/';
+  const state = useLocation().state as { from?: string; notice?: string } | null;
+  const from = state?.from ?? '/';
 
   // A successful login stores the session, the store sets the staff member, and this navigates back.
   if (staff) return <Navigate to={from} replace />;
@@ -46,7 +47,11 @@ export function LoginPage() {
             <Typography variant="h5" component="h1">
               Log in to Back-office
             </Typography>
-            {error && <Alert severity="error">{describeLoginError(error)}</Alert>}
+            {error ? (
+              <Alert severity="error">{describeLoginError(error)}</Alert>
+            ) : (
+              state?.notice && <Alert severity="info">{state.notice}</Alert>
+            )}
             <TextField
               label="Email"
               type="email"

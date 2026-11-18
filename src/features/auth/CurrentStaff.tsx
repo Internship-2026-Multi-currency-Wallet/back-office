@@ -13,7 +13,7 @@ export function CurrentStaff() {
       <Typography variant="body2" data-testid="current-staff" sx={{ ml: 2, mr: 1 }}>
         {staff.email} · {staff.role}
       </Typography>
-      <Button color="inherit" onClick={logout}>
+      <Button color="inherit" onClick={() => logout()}>
         Log out
       </Button>
     </>
