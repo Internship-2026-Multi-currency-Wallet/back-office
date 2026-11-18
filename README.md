@@ -127,6 +127,8 @@ Staff log in at `/login` (`staffLogin`); every other page needs a session (`<Req
 - **Dev mode:** without a session, `VITE_DEV_USER` still opens the app with the dev header, as before; a staff
   session wins over it.
 - Mocks: `admin@example.com` (ADMIN) and `support@example.com` (SUPPORT), password `Admin1234!` (fake).
+  Staff invited in the mocks get the tokens `mock-invitation-1`, `-2`, … per page load (or test), never returned by
+  the API: open `/accept-invitation?token=mock-invitation-1` in the same page (a reload resets the mocks).
 
 ## Permissions — `<RequirePermission>`
 

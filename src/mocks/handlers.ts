@@ -4,6 +4,8 @@ import { config } from '../config-env';
 import type { RatesServiceHealthQuery } from '../gql/rates-service/graphql';
 import type { TreasuryServiceHealthQuery } from '../gql/treasury-service/graphql';
 import type {
+  InviteStaffMutation,
+  InviteStaffMutationVariables,
   MeQuery,
   ResetSettingMutation,
   ResetSettingMutationVariables,
@@ -16,7 +18,7 @@ import type {
   WalletCoreHealthQuery,
 } from '../gql/wallet-core/graphql';
 import { MockSettingsError, mockSettings } from './settings';
-import { mockStaff, staffAuthHandlers, staffFromBearer } from './staff';
+import { MockStaffError, mockStaff, staffAuthHandlers, staffFromBearer } from './staff';
 
 /**
  * Mock Service Worker handlers (`VITE_USE_MOCKS=true`): every screen works without backends.
@@ -52,12 +54,15 @@ function callerFrom(
 
 interface GraphQLBody<T> {
   data: T | null;
-  errors?: { message: string; extensions: { code: string } }[];
+  errors?: { message: string; extensions: Record<string, string> & { code: string } }[];
 }
 
 function asStaff<T>(request: Request, permission: string, resolve: (userId: string) => T) {
-  const fail = (message: string, code: string) =>
-    HttpResponse.json<GraphQLBody<T>>({ data: null, errors: [{ message, extensions: { code } }] });
+  const fail = (message: string, code: string, extensions: Record<string, string> = {}) =>
+    HttpResponse.json<GraphQLBody<T>>({
+      data: null,
+      errors: [{ message, extensions: { ...extensions, code } }],
+    });
   const user = callerFrom(request);
   if (!user) return fail('Authentication required', 'UNAUTHENTICATED');
   if (!user.permissions.includes(permission))
@@ -66,6 +71,7 @@ function asStaff<T>(request: Request, permission: string, resolve: (userId: stri
     return HttpResponse.json<GraphQLBody<T>>({ data: resolve(user.id) });
   } catch (error) {
     if (error instanceof MockSettingsError) return fail(error.message, error.code);
+    if (error instanceof MockStaffError) return fail(error.message, error.code, error.extensions);
     throw error;
   }
 }
@@ -101,6 +107,14 @@ export const handlers = [
 
   walletCore.query<StaffMembersQuery>('StaffMembers', ({ request }) =>
     asStaff(request, 'bo:staff', () => ({ staffMembers: mockStaff.list() })),
+  ),
+
+  walletCore.mutation<InviteStaffMutation, InviteStaffMutationVariables>(
+    'InviteStaff',
+    ({ request, variables }) =>
+      asStaff(request, 'bo:staff:modify', () => ({
+        inviteStaff: mockStaff.invite(variables.input.email, variables.input.role),
+      })),
   ),
 
   walletCore.query<StaffSettingsQuery>('StaffSettings', ({ request }) =>

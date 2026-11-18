@@ -11,3 +11,15 @@ export const staffMembersQuery = graphql(`
     }
   }
 `);
+
+export const inviteStaffMutation = graphql(`
+  mutation InviteStaff($input: InviteStaffInput!) {
+    inviteStaff(input: $input) {
+      id
+      email
+      role
+      status
+      createdAt
+    }
+  }
+`);
