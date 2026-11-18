@@ -22,6 +22,7 @@ type Documents = {
     "\n  query SettingHistory($key: String, $limit: Int!, $before: DateTime, $beforeId: ID) {\n    settingHistory(key: $key, limit: $limit, before: $before, beforeId: $beforeId) {\n      id\n      key\n      oldValue\n      newValue\n      changedBy\n      changedAt\n    }\n  }\n": typeof types.SettingHistoryDocument,
     "\n  mutation UpdateSetting($key: String!, $value: JSON!) {\n    updateSetting(key: $key, value: $value) {\n      key\n      value\n      overridden\n    }\n  }\n": typeof types.UpdateSettingDocument,
     "\n  mutation ResetSetting($key: String!) {\n    resetSetting(key: $key) {\n      key\n      value\n      overridden\n    }\n  }\n": typeof types.ResetSettingDocument,
+    "\n  query StaffMembers {\n    staffMembers {\n      id\n      email\n      role\n      status\n      createdAt\n    }\n  }\n": typeof types.StaffMembersDocument,
     "\n  query WalletCoreHealth {\n    health {\n      service\n      version\n      client\n      db\n      redis\n    }\n  }\n": typeof types.WalletCoreHealthDocument,
     "\n  query Me {\n    me {\n      id\n      kind\n      permissions\n      strategy\n    }\n  }\n": typeof types.MeDocument,
     "\n  mutation StaffRefreshSession {\n    staffRefreshSession {\n      accessToken\n      accessTokenExpiresAt\n      staff {\n        id\n        email\n        role\n        permissions\n      }\n    }\n  }\n": typeof types.StaffRefreshSessionDocument,
@@ -35,6 +36,7 @@ const documents: Documents = {
     "\n  query SettingHistory($key: String, $limit: Int!, $before: DateTime, $beforeId: ID) {\n    settingHistory(key: $key, limit: $limit, before: $before, beforeId: $beforeId) {\n      id\n      key\n      oldValue\n      newValue\n      changedBy\n      changedAt\n    }\n  }\n": types.SettingHistoryDocument,
     "\n  mutation UpdateSetting($key: String!, $value: JSON!) {\n    updateSetting(key: $key, value: $value) {\n      key\n      value\n      overridden\n    }\n  }\n": types.UpdateSettingDocument,
     "\n  mutation ResetSetting($key: String!) {\n    resetSetting(key: $key) {\n      key\n      value\n      overridden\n    }\n  }\n": types.ResetSettingDocument,
+    "\n  query StaffMembers {\n    staffMembers {\n      id\n      email\n      role\n      status\n      createdAt\n    }\n  }\n": types.StaffMembersDocument,
     "\n  query WalletCoreHealth {\n    health {\n      service\n      version\n      client\n      db\n      redis\n    }\n  }\n": types.WalletCoreHealthDocument,
     "\n  query Me {\n    me {\n      id\n      kind\n      permissions\n      strategy\n    }\n  }\n": types.MeDocument,
     "\n  mutation StaffRefreshSession {\n    staffRefreshSession {\n      accessToken\n      accessTokenExpiresAt\n      staff {\n        id\n        email\n        role\n        permissions\n      }\n    }\n  }\n": types.StaffRefreshSessionDocument,
@@ -86,6 +88,10 @@ export function graphql(source: "\n  mutation UpdateSetting($key: String!, $valu
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
 export function graphql(source: "\n  mutation ResetSetting($key: String!) {\n    resetSetting(key: $key) {\n      key\n      value\n      overridden\n    }\n  }\n"): (typeof documents)["\n  mutation ResetSetting($key: String!) {\n    resetSetting(key: $key) {\n      key\n      value\n      overridden\n    }\n  }\n"];
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n  query StaffMembers {\n    staffMembers {\n      id\n      email\n      role\n      status\n      createdAt\n    }\n  }\n"): (typeof documents)["\n  query StaffMembers {\n    staffMembers {\n      id\n      email\n      role\n      status\n      createdAt\n    }\n  }\n"];
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */

@@ -9,7 +9,9 @@ import type {
   StaffLogoutMutation,
   StaffMeQuery,
   StaffRefreshSessionMutation,
+  StaffMembersQuery,
   StaffRole,
+  StaffStatus,
 } from '../gql/wallet-core/graphql';
 
 /**
@@ -39,11 +41,12 @@ interface MockStaff {
   id: string;
   email: string;
   role: StaffRole;
-  status: 'INVITED' | 'ACTIVE';
+  status: StaffStatus;
   password: string | null;
   invitationToken: string | null;
   failedLogins: number;
   lockedUntil: number | null;
+  createdAt: string;
 }
 
 const initialStaff = (): MockStaff[] => [
@@ -56,6 +59,7 @@ const initialStaff = (): MockStaff[] => [
     invitationToken: null,
     failedLogins: 0,
     lockedUntil: null,
+    createdAt: '2026-01-05T09:00:00.000Z',
   },
   {
     id: 'staff-support',
@@ -66,6 +70,7 @@ const initialStaff = (): MockStaff[] => [
     invitationToken: null,
     failedLogins: 0,
     lockedUntil: null,
+    createdAt: '2026-02-10T12:30:00.000Z',
   },
   {
     id: 'staff-invited',
@@ -76,6 +81,7 @@ const initialStaff = (): MockStaff[] => [
     invitationToken: MOCK_INVITATION_TOKEN,
     failedLogins: 0,
     lockedUntil: null,
+    createdAt: '2026-03-15T08:45:00.000Z',
   },
 ];
 
@@ -92,6 +98,24 @@ const toMe = ({ id, email, role }: MockStaff) => ({
   role,
   permissions: ROLE_PERMISSIONS[role],
 });
+
+const toMember = ({ id, email, role, status, createdAt }: MockStaff) => ({
+  id,
+  email,
+  role,
+  status,
+  createdAt,
+});
+
+/** Keep listing and authentication on the same collection so accepted invitations appear without separate synchronization. */
+export const mockStaff = {
+  list(): StaffMembersQuery['staffMembers'] {
+    // Like wallet-core: oldest first, then by id.
+    return [...staff]
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))
+      .map(toMember);
+  },
+};
 
 /** `mock-staff.<staffId>.<expiresAtMs>`: stateless, so handlers can check it without a session store. */
 export function mockAccessToken(staffId: string, expiresAt = Date.now() + ACCESS_TTL_MS): string {

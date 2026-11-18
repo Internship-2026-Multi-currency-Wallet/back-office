@@ -4,6 +4,7 @@ import { config } from '../config-env';
 import { CurrentStaff } from '../features/auth/CurrentStaff';
 import { RequirePermission } from '../features/permissions/RequirePermission';
 import { SETTINGS_PERMISSIONS } from '../features/settings/permissions';
+import { STAFF_PERMISSION } from '../features/staff/permissions';
 
 export function AppLayout() {
   return (
@@ -32,6 +33,11 @@ export function AppLayout() {
           <RequirePermission permission={SETTINGS_PERMISSIONS}>
             <Button color="inherit" component={RouterLink} to="/settings">
               Settings
+            </Button>
+          </RequirePermission>
+          <RequirePermission permission={STAFF_PERMISSION}>
+            <Button color="inherit" component={RouterLink} to="/staff">
+              Staff
             </Button>
           </RequirePermission>
           <CurrentStaff />

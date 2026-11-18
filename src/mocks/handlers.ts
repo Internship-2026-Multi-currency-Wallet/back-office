@@ -9,13 +9,14 @@ import type {
   ResetSettingMutationVariables,
   SettingHistoryQuery,
   SettingHistoryQueryVariables,
+  StaffMembersQuery,
   StaffSettingsQuery,
   UpdateSettingMutation,
   UpdateSettingMutationVariables,
   WalletCoreHealthQuery,
 } from '../gql/wallet-core/graphql';
 import { MockSettingsError, mockSettings } from './settings';
-import { staffAuthHandlers, staffFromBearer } from './staff';
+import { mockStaff, staffAuthHandlers, staffFromBearer } from './staff';
 
 /**
  * Mock Service Worker handlers (`VITE_USE_MOCKS=true`): every screen works without backends.
@@ -97,6 +98,10 @@ export const handlers = [
     // Only staff use the back-office; the dev header has no user type until E1-13.
     return HttpResponse.json({ data: { me: { ...user, kind: 'STAFF' } } });
   }),
+
+  walletCore.query<StaffMembersQuery>('StaffMembers', ({ request }) =>
+    asStaff(request, 'bo:staff', () => ({ staffMembers: mockStaff.list() })),
+  ),
 
   walletCore.query<StaffSettingsQuery>('StaffSettings', ({ request }) =>
     asStaff(request, 'bo:settings', () => ({ staffSettings: mockSettings.list() })),
