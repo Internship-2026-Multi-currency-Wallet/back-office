@@ -1,29 +1,11 @@
-import {
-  Alert,
-  Box,
-  Button,
-  List,
-  ListItem,
-  ListItemIcon,
-  ListItemText,
-  Paper,
-  Stack,
-  TextField,
-  Typography,
-} from '@mui/material';
+import { Alert, Box, Button, Paper, Stack, TextField, Typography } from '@mui/material';
 import { type FormEvent, useState } from 'react';
 import { Link as RouterLink, useSearchParams } from 'react-router';
 import { type GraphQLRequestError, toRequestError } from '../../graphql/client';
 import { acceptStaffInvitation } from './authApi';
 import { describeInvitationError } from './authErrors';
-
-/** The wallet-core password rules (`AcceptStaffInvitationInput.password`, same as user registration). */
-const PASSWORD_RULES = [
-  { label: '8 to 128 characters', test: (p: string) => p.length >= 8 && p.length <= 128 },
-  { label: 'An uppercase letter', test: (p: string) => /\p{Lu}/u.test(p) },
-  { label: 'A digit', test: (p: string) => /\d/.test(p) },
-  { label: 'A special character', test: (p: string) => /[^\p{L}\p{N}]/u.test(p) },
-];
+import { PasswordRequirements } from './PasswordRequirements';
+import { meetsPasswordRules } from './passwordRules';
 
 /** The token is a credential: keep it in memory only, never log or store it. */
 export function AcceptInvitationPage() {
@@ -34,9 +16,8 @@ export function AcceptInvitationPage() {
   const [error, setError] = useState<GraphQLRequestError | null>(null);
   const [accepted, setAccepted] = useState(false);
 
-  const rules = PASSWORD_RULES.map((rule) => ({ label: rule.label, met: rule.test(password) }));
   const mismatch = confirm !== '' && confirm !== password;
-  const canSubmit = !isLoading && rules.every((rule) => rule.met) && confirm === password;
+  const canSubmit = !isLoading && meetsPasswordRules(password) && confirm === password;
 
   const onSubmit = async (event: FormEvent) => {
     event.preventDefault();
@@ -105,23 +86,7 @@ export function AcceptInvitationPage() {
                   onChange={(e) => edit(setPassword)(e.target.value)}
                   disabled={isLoading}
                 />
-                <List dense disablePadding aria-label="Password requirements">
-                  {rules.map((rule) => (
-                    <ListItem key={rule.label} disableGutters sx={{ py: 0 }}>
-                      <ListItemIcon
-                        sx={{ minWidth: 24, color: rule.met ? 'success.main' : 'text.disabled' }}
-                      >
-                        {rule.met ? '✓' : '•'}
-                      </ListItemIcon>
-                      <ListItemText
-                        primary={rule.label}
-                        slotProps={{
-                          primary: { color: rule.met ? 'success.main' : 'text.secondary' },
-                        }}
-                      />
-                    </ListItem>
-                  ))}
-                </List>
+                <PasswordRequirements password={password} />
                 <TextField
                   label="Confirm password"
                   type="password"

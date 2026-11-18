@@ -4,6 +4,7 @@ import { config } from '../config-env';
 import type {
   AcceptStaffInvitationMutation,
   AcceptStaffInvitationMutationVariables,
+  ChangeOwnStaffPasswordInput,
   StaffLoginMutation,
   StaffLoginMutationVariables,
   StaffLogoutMutation,
@@ -15,8 +16,8 @@ import type {
 } from '../gql/wallet-core/graphql';
 
 /**
- * Mock of the wallet-core staff auth contract. The HttpOnly `staff_refresh_token` cookie is imitated by a plain
- * `mock_staff_refresh` cookie, so a reload keeps the session. Fake passwords only.
+ * Mock of the wallet-core staff auth contract (fake passwords only); a readable
+ * `mock_staff_refresh=<staffId>.<sessionVersion>` cookie imitates the HttpOnly refresh cookie.
  */
 const walletCore = graphql.link(config.walletCoreUrl);
 
@@ -85,17 +86,52 @@ const initialStaff = (): MockStaff[] => [
   },
 ];
 
+// Outlive a reload like the refresh cookie they validate, or the kept session would be rejected and a revoked
+// cookie accepted again. Only counters per staff id: no passwords, tokens or invitation secrets.
+const SESSION_VERSIONS_KEY = 'mock_staff_session_versions';
+
+function loadSessionVersions(): Record<string, number> {
+  try {
+    const stored: unknown = JSON.parse(localStorage.getItem(SESSION_VERSIONS_KEY) ?? '{}');
+    if (typeof stored !== 'object' || stored === null) return {};
+    return Object.fromEntries(
+      Object.entries(stored).filter(([, version]) => Number.isSafeInteger(version)),
+    ) as Record<string, number>;
+  } catch {
+    return {};
+  }
+}
+
 let staff = initialStaff();
 let invitations = 0;
+let sessionVersions = loadSessionVersions();
+
+const sessionVersion = (staffId: string) => sessionVersions[staffId] ?? 0;
+
+/** wallet-core `revokeSessions`: every refresh cookie issued so far stops working. */
+function endSessions(staffId: string): void {
+  sessionVersions = { ...sessionVersions, [staffId]: sessionVersion(staffId) + 1 };
+  localStorage.setItem(SESSION_VERSIONS_KEY, JSON.stringify(sessionVersions));
+}
 
 export function resetMockStaff(): void {
   staff = initialStaff();
   invitations = 0;
+  sessionVersions = {};
+  localStorage.removeItem(SESSION_VERSIONS_KEY);
   clearRefreshCookie();
 }
 
 export class MockStaffError extends Error {
-  readonly code: 'BAD_USER_INPUT' | 'STAFF_ALREADY_EXISTS';
+  readonly code:
+    | 'BAD_USER_INPUT'
+    | 'STAFF_ALREADY_EXISTS'
+    | 'STAFF_NOT_FOUND'
+    | 'NOT_INVITED'
+    | 'CANNOT_DEACTIVATE_SELF'
+    | 'LAST_ADMIN'
+    | 'INVALID_CURRENT_PASSWORD'
+    | 'FORBIDDEN';
   readonly extensions: Record<string, string>;
 
   constructor(
@@ -112,6 +148,15 @@ export class MockStaffError extends Error {
 // Close to wallet-core's `z.email()`; the real backend stays authoritative.
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const EMAIL_MAX_LENGTH = 255;
+const PASSWORD_MAX_LENGTH = 128;
+
+/** wallet-core's password rules (`registerInputSchema.shape.password`). */
+const isStrongPassword = (password: string) =>
+  password.length >= 8 &&
+  password.length <= PASSWORD_MAX_LENGTH &&
+  /\d/.test(password) &&
+  /\p{Lu}/u.test(password) &&
+  /[^\p{L}\p{N}]/u.test(password);
 
 const toMe = ({ id, email, role }: MockStaff) => ({
   id,
@@ -172,33 +217,110 @@ export const mockStaff = {
     staff.push(member);
     return toMember(member);
   },
+
+  resendInvitation(staffId: string): StaffMember {
+    const member = findOrThrow(staffId);
+    if (member.status !== 'INVITED')
+      throw new MockStaffError('NOT_INVITED', 'Staff member is not in the invited status');
+    invitations += 1;
+    member.invitationToken = `mock-invitation-${invitations}`;
+    return toMember(member);
+  },
+
+  changeRole(staffId: string, role: StaffRole): StaffMember {
+    const member = findOrThrow(staffId);
+    if (member.role === role) return toMember(member);
+    assertNotLastAdmin(member);
+    member.role = role;
+    endSessions(member.id);
+    return toMember(member);
+  },
+
+  deactivate(actorId: string, staffId: string): StaffMember {
+    const member = findOrThrow(staffId);
+    if (member.id.toLowerCase() === actorId.toLowerCase())
+      throw new MockStaffError('CANNOT_DEACTIVATE_SELF', 'You cannot deactivate your own account');
+    if (member.status === 'DEACTIVATED') return toMember(member);
+    assertNotLastAdmin(member);
+    member.status = 'DEACTIVATED';
+    endSessions(member.id);
+    member.invitationToken = null;
+    return toMember(member);
+  },
+
+  /**
+   * wallet-core ends the caller's other sessions and keeps the current refresh session; the mock tracks session
+   * versions per staff member, so it re-issues this browser's still valid cookie instead.
+   */
+  changeOwnPassword(staffId: string, input: ChangeOwnStaffPasswordInput): boolean {
+    const wrong = () =>
+      new MockStaffError('INVALID_CURRENT_PASSWORD', 'Current password is incorrect');
+    if (input.currentPassword.length > PASSWORD_MAX_LENGTH) throw wrong();
+    if (!isStrongPassword(input.newPassword))
+      throw new MockStaffError('BAD_USER_INPUT', 'Password is too weak', { field: 'newPassword' });
+    const member = staff.find((s) => s.id === staffId);
+    if (member?.status !== 'ACTIVE' || member.password === null)
+      throw new MockStaffError('FORBIDDEN', 'Account is not active');
+    // A wrong current password does not count toward the login lockout, as in wallet-core.
+    if (input.currentPassword !== member.password) throw wrong();
+    const keepsCurrent = refreshCookieMember() === member;
+    member.password = input.newPassword;
+    endSessions(member.id);
+    if (keepsCurrent) setRefreshCookie(member.id);
+    return true;
+  },
 };
 
-/** `mock-staff.<staffId>.<expiresAtMs>`: stateless, so handlers can check it without a session store. */
-export function mockAccessToken(staffId: string, expiresAt = Date.now() + ACCESS_TTL_MS): string {
-  return `mock-staff.${staffId}.${expiresAt}`;
+function findOrThrow(staffId: string): MockStaff {
+  const member = staff.find((s) => s.id === staffId);
+  if (!member) throw new MockStaffError('STAFF_NOT_FOUND', 'Staff member not found');
+  return member;
 }
 
-/** The staff member of a still valid mock access token, with their permissions. */
+function assertNotLastAdmin(target: MockStaff): void {
+  if (target.status !== 'ACTIVE' || target.role !== 'ADMIN') return;
+  const admins = staff.filter((s) => s.status === 'ACTIVE' && s.role === 'ADMIN');
+  if (admins.length === 1)
+    throw new MockStaffError(
+      'LAST_ADMIN',
+      'The last active admin cannot be deactivated or demoted',
+    );
+}
+
+/**
+ * Snapshot permissions so existing access survives role changes and deactivation until expiry, matching
+ * wallet-core.
+ */
+export function mockAccessToken(staffId: string, expiresAt = Date.now() + ACCESS_TTL_MS): string {
+  const member = staff.find((s) => s.id === staffId);
+  const permissions = member ? ROLE_PERMISSIONS[member.role] : [];
+  return `mock-staff.${staffId}.${expiresAt}.${permissions.join(',')}`;
+}
+
 export function staffFromBearer(
   authorization: string | null,
 ): { id: string; permissions: string[] } | null {
-  const match = /^Bearer mock-staff\.([^.]+)\.(\d+)$/.exec(authorization ?? '');
+  const match = /^Bearer mock-staff\.([^.]+)\.(\d+)\.([^.]*)$/.exec(authorization ?? '');
   if (!match || Number(match[2]) <= Date.now()) return null;
   const member = staff.find((s) => s.id === match[1]);
-  return member ? { id: member.id, permissions: ROLE_PERMISSIONS[member.role] } : null;
+  return member ? { id: member.id, permissions: match[3].split(',').filter(Boolean) } : null;
 }
 
 export function setRefreshCookie(staffId: string): void {
-  document.cookie = `${REFRESH_COOKIE}=${staffId}; path=/; max-age=${8 * 3600}`;
+  document.cookie = `${REFRESH_COOKIE}=${staffId}.${sessionVersion(staffId)}; path=/; max-age=${8 * 3600}`;
 }
 
 function clearRefreshCookie(): void {
   document.cookie = `${REFRESH_COOKIE}=; path=/; max-age=0`;
 }
 
-function refreshCookieStaffId(): string | null {
-  return new RegExp(`(?:^|; )${REFRESH_COOKIE}=([^;]+)`).exec(document.cookie)?.[1] ?? null;
+function refreshCookieMember(): MockStaff | null {
+  const value = new RegExp(`(?:^|; )${REFRESH_COOKIE}=([^;]+)`).exec(document.cookie)?.[1] ?? '';
+  const match = /^(.+)\.(\d+)$/.exec(value);
+  const member = match && staff.find((s) => s.id === match[1]);
+  if (!member || member.status !== 'ACTIVE' || sessionVersion(member.id) !== Number(match[2]))
+    return null;
+  return member;
 }
 
 const fail = (code: string, message: string, extensions: Record<string, string> = {}) =>
@@ -249,14 +371,9 @@ export const staffAuthHandlers = [
     'AcceptStaffInvitation',
     ({ variables }) => {
       const { token, password } = variables.input;
-      const strong =
-        password.length >= 8 &&
-        password.length <= 128 &&
-        /\d/.test(password) &&
-        /\p{Lu}/u.test(password) &&
-        /[^\p{L}\p{N}]/u.test(password);
       // wallet-core checks the password before the token.
-      if (!strong) return fail('BAD_USER_INPUT', 'Password is too weak', { field: 'password' });
+      if (!isStrongPassword(password))
+        return fail('BAD_USER_INPUT', 'Password is too weak', { field: 'password' });
       const member = staff.find((s) => s.status === 'INVITED' && s.invitationToken === token);
       if (!member) return fail('INVALID_INVITATION', 'Invitation is invalid or expired');
       member.status = 'ACTIVE';
@@ -267,8 +384,7 @@ export const staffAuthHandlers = [
   ),
 
   walletCore.mutation<StaffRefreshSessionMutation>('StaffRefreshSession', () => {
-    const id = refreshCookieStaffId();
-    const member = staff.find((s) => s.id === id);
+    const member = refreshCookieMember();
     if (!member) return fail('INVALID_REFRESH_TOKEN', 'Session expired, please log in again');
     return HttpResponse.json({ data: { staffRefreshSession: payload(member) } });
   }),

@@ -23,3 +23,39 @@ export const inviteStaffMutation = graphql(`
     }
   }
 `);
+
+export const resendStaffInvitationMutation = graphql(`
+  mutation ResendStaffInvitation($staffId: ID!) {
+    resendStaffInvitation(staffId: $staffId) {
+      id
+      email
+      role
+      status
+      createdAt
+    }
+  }
+`);
+
+export const changeStaffRoleMutation = graphql(`
+  mutation ChangeStaffRole($staffId: ID!, $role: StaffRole!) {
+    changeStaffRole(staffId: $staffId, role: $role) {
+      id
+      email
+      role
+      status
+      createdAt
+    }
+  }
+`);
+
+export const deactivateStaffMutation = graphql(`
+  mutation DeactivateStaff($staffId: ID!) {
+    deactivateStaff(staffId: $staffId) {
+      id
+      email
+      role
+      status
+      createdAt
+    }
+  }
+`);

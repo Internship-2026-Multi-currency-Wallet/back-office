@@ -22,3 +22,38 @@ export function describeInviteError(error: Partial<GraphQLRequestError>): Invite
       return { message: 'Something went wrong. Please try again.' };
   }
 }
+
+export type StaffAction = 'resend' | 'changeRole' | 'deactivate';
+
+const FORBIDDEN_TEXT: Record<StaffAction, string> = {
+  resend: 'You do not have permission to resend invitations.',
+  changeRole: 'You do not have permission to change staff roles.',
+  deactivate: 'You do not have permission to deactivate staff.',
+};
+
+/** Local texts only: the server message is for developers. */
+export function describeStaffActionError(
+  action: StaffAction,
+  error: Partial<GraphQLRequestError>,
+): string {
+  switch (error.code) {
+    case 'STAFF_NOT_FOUND':
+      return 'This staff account no longer exists. The list has been refreshed.';
+    case 'NOT_INVITED':
+      return 'This account is no longer waiting for an invitation (it was accepted or deactivated). The list has been refreshed.';
+    case 'LAST_ADMIN':
+      return action === 'deactivate'
+        ? 'The last active admin cannot be deactivated. Make another staff member an admin first.'
+        : 'The last active admin cannot be demoted. Make another staff member an admin first.';
+    case 'CANNOT_DEACTIVATE_SELF':
+      return 'You cannot deactivate your own account.';
+    case 'FORBIDDEN':
+      return FORBIDDEN_TEXT[action];
+    case 'UNAUTHENTICATED':
+      return 'Your session has ended. Log in again.';
+    case undefined:
+      return 'Could not reach the server. Check your connection and try again.';
+    default:
+      return 'Something went wrong. Please try again.';
+  }
+}
