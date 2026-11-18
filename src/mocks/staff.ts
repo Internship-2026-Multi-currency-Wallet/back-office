@@ -86,7 +86,6 @@ const initialStaff = (): MockStaff[] => [
 ];
 
 let staff = initialStaff();
-/** Invitations made in this document (or test): the n-th one gets id `staff-invite-<n>`, token `mock-invitation-<n>`. */
 let invitations = 0;
 
 export function resetMockStaff(): void {
@@ -95,7 +94,6 @@ export function resetMockStaff(): void {
   clearRefreshCookie();
 }
 
-/** A mock staff error with the wallet-core code and `extensions` (e.g. `field`). */
 export class MockStaffError extends Error {
   readonly code: 'BAD_USER_INPUT' | 'STAFF_ALREADY_EXISTS';
   readonly extensions: Record<string, string>;

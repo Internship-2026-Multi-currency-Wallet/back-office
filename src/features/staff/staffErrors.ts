@@ -1,7 +1,6 @@
 import type { GraphQLRequestError } from '../../graphql/client';
 
 export interface InviteError {
-  /** Set when the message belongs next to a form field. */
   field?: 'email';
   message: string;
 }

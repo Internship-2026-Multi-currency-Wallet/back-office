@@ -47,7 +47,6 @@ export function InviteStaffDialog({ open, onClose, onInvited }: InviteStaffDialo
   return (
     <Dialog
       open={open}
-      // No closing by backdrop or Escape while the invitation is being sent.
       onClose={() => !isLoading && onClose()}
       fullWidth
       maxWidth="xs"
@@ -97,7 +96,6 @@ function InviteStaffForm({ invite, isLoading, onCancel, onInvited }: InviteStaff
     else setServerError(describeInviteError(result.error ?? {}));
   };
 
-  /** An edit clears the general error and the error of the edited field (a role change keeps a duplicate email). */
   const edit = (field?: InviteError['field']) =>
     setServerError((current) => (current?.field && current.field !== field ? current : null));
 
