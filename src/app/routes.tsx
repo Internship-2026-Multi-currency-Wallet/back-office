@@ -3,6 +3,7 @@ import { AcceptInvitationPage } from '../features/auth/AcceptInvitationPage';
 import { LoginPage } from '../features/auth/LoginPage';
 import { RequireAuth } from '../features/auth/RequireAuth';
 import { RequireRoutePermission } from '../features/permissions/NoAccessPage';
+import { PROFILE_PERMISSION } from '../features/profile/permissions';
 import { SETTINGS_PERMISSIONS } from '../features/settings/permissions';
 import { STAFF_PERMISSION } from '../features/staff/permissions';
 import { AppLayout } from '../layout/AppLayout';
@@ -51,6 +52,17 @@ export const routes: RouteObject[] = [
                 path: 'staff',
                 lazy: async () => ({
                   Component: (await import('../features/staff/StaffPage')).StaffPage,
+                }),
+              },
+            ],
+          },
+          {
+            element: <RequireRoutePermission permission={PROFILE_PERMISSION} />,
+            children: [
+              {
+                path: 'profile',
+                lazy: async () => ({
+                  Component: (await import('../features/profile/ProfilePage')).ProfilePage,
                 }),
               },
             ],
