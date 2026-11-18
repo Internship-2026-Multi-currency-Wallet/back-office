@@ -9,7 +9,6 @@ import { ROLE_LABELS } from '../staff/roles';
 import { changeOwnStaffPassword } from './profileApi';
 import { type PasswordChangeError, describePasswordChangeError } from './profileErrors';
 
-/** The signed-in staff member (as `staffMe` returned it) and the own password change. For every staff role. */
 export function ProfilePage() {
   const staff = useAppSelector(selectStaff);
 

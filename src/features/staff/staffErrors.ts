@@ -31,7 +31,7 @@ const FORBIDDEN_TEXT: Record<StaffAction, string> = {
   deactivate: 'You do not have permission to deactivate staff.',
 };
 
-/** Errors of `resendStaffInvitation`, `changeStaffRole` and `deactivateStaff`; never the server `message`. */
+/** Local texts only: the server message is for developers. */
 export function describeStaffActionError(
   action: StaffAction,
   error: Partial<GraphQLRequestError>,

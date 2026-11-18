@@ -10,7 +10,14 @@ import {
 import { refreshSession, request, toRequestError } from '../graphql/client';
 import { SESSION_STORAGE_KEY, type SessionStaff, clearSession } from '../graphql/session';
 import { ADMIN, signInForTest, SUPPORT, testSession } from '../test/auth';
-import { MOCK_INVITATION_TOKEN, MOCK_INVITED_EMAIL, MOCK_PASSWORD, mockStaff } from './staff';
+import { server } from './server';
+import {
+  MOCK_INVITATION_TOKEN,
+  MOCK_INVITED_EMAIL,
+  MOCK_PASSWORD,
+  mockStaff,
+  resetMockStaff,
+} from './staff';
 
 /**
  * The mock wallet-core staff contract through the real client (`request`), as the app uses it: the mock must keep
@@ -291,5 +298,51 @@ describe('mock staff contract: change own password', () => {
     localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(supportSession));
 
     expect(await errorCode(changePassword(MOCK_PASSWORD, NEW_PASSWORD))).toBe('FORBIDDEN');
+  });
+});
+
+describe('mock staff contract: page reload', () => {
+  /** A reload: a fresh mock module (in-memory collection rebuilt) with the same cookie and localStorage. */
+  async function reload() {
+    vi.resetModules();
+    const reloaded = await import('./staff');
+    server.use(...reloaded.staffAuthHandlers);
+  }
+
+  it('keeps the current session after a password change and a reload; the pre-change cookie stays revoked', async () => {
+    signInForTest({ staff: SUPPORT });
+    const previousCookie = document.cookie;
+    await changePassword(MOCK_PASSWORD, NEW_PASSWORD);
+    // Only revocation counters are kept, never a password or token.
+    expect(localStorage.getItem('mock_staff_session_versions')).toBe('{"staff-support":1}');
+
+    await reload();
+
+    expect(await refreshSession()).toBe(true);
+    document.cookie = `${previousCookie}; path=/`;
+    expect(await refreshSession()).toBe(false);
+  });
+
+  it('a cookie revoked by a role change stays revoked after a reload', async () => {
+    signInForTest({ staff: SUPPORT });
+    useSession(ADMIN);
+    await changeRole('staff-support', 'FINANCE');
+
+    await reload();
+
+    useSession(SUPPORT);
+    expect(await refreshSession()).toBe(false);
+  });
+
+  it('resetting the mocks forgets the counters, so tests start from the fixtures', async () => {
+    signInForTest({ staff: SUPPORT });
+    await changePassword(MOCK_PASSWORD, NEW_PASSWORD);
+
+    resetMockStaff();
+
+    expect(localStorage.getItem('mock_staff_session_versions')).toBeNull();
+    signInForTest({ staff: SUPPORT });
+    expect(document.cookie).toContain('mock_staff_refresh=staff-support.0');
+    expect(await refreshSession()).toBe(true);
   });
 });

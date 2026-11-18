@@ -55,8 +55,8 @@ const baseColumns: GridColDef<StaffMember>[] = [
 ];
 
 /**
- * What the menu offers. UX only: wallet-core decides (self, last admin, status) and the dialogs show its errors.
- * A deactivated account has no actions (the contract has no reactivation). One's own account cannot be deactivated.
+ * These menu restrictions are UX-only because wallet-core remains authoritative for status, self-action, and
+ * last-admin checks.
  */
 function actionsFor(member: StaffMember, selfId: string | undefined): StaffAction[] {
   if (member.status === 'DEACTIVATED') return [];

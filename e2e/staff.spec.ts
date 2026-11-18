@@ -200,3 +200,27 @@ test('role change, own password change and deactivation take effect at the next 
   ).toBeVisible();
   expect(await page.evaluate('window.e2eSameDocument')).toBe(true);
 });
+
+test('after an own password change the session survives a reload (mocks)', async ({ page }) => {
+  await page.goto('/');
+  await logIn(page, 'support@example.com', 'Admin1234!');
+  await page.getByRole('link', { name: 'Profile' }).click();
+  const form = page.getByRole('form', { name: 'Change password' });
+  await form.getByLabel('Current password').fill('Admin1234!');
+  await form.getByRole('textbox', { name: 'New password', exact: true }).fill('Support1234!');
+  await form.getByLabel('Confirm new password').fill('Support1234!');
+  await form.getByRole('button', { name: 'Change password' }).click();
+  await expect(page.getByText('Your password has been changed.')).toBeVisible();
+
+  // Expire the access token, so the reload has to refresh with the re-issued cookie.
+  await page.evaluate(`(() => {
+    const key = 'wallet.staff.session';
+    const session = JSON.parse(localStorage.getItem(key));
+    session.accessToken = session.accessToken.replace(/^(mock-staff\\.[^.]+\\.)\\d+/, '$11');
+    session.accessTokenExpiresAt = new Date(0).toISOString();
+    localStorage.setItem(key, JSON.stringify(session));
+  })()`);
+  await page.reload();
+  await expect(page.getByTestId('current-staff')).toHaveText('support@example.com · SUPPORT');
+  await expect(page).toHaveURL(/\/profile$/);
+});

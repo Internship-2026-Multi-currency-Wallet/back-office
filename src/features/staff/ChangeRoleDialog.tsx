@@ -11,7 +11,6 @@ interface ChangeRoleDialogProps extends StaffActionDialogProps {
   isSelf: boolean;
 }
 
-/** Starts at the current role; Confirm stays disabled until another role is selected (no redundant update). */
 export function ChangeRoleDialog({ member, isSelf, ...props }: ChangeRoleDialogProps) {
   const [changeRole, { isLoading }] = useChangeStaffRoleMutation();
   const [role, setRole] = useState<StaffRole>(member.role);

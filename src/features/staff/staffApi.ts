@@ -13,8 +13,8 @@ import {
 export type StaffMember = StaffMembersQuery['staffMembers'][number];
 
 /**
- * Refetch the list after a success, and also when wallet-core says the row is stale (deleted, or no longer invited):
- * the list then shows the server state. Other errors change nothing on the server, so the list stays as it is.
+ * These errors mean the shown row is stale (deleted or no longer invited), so the list is reloaded from the
+ * server.
  */
 const STALE_ROW_CODES = ['STAFF_NOT_FOUND', 'NOT_INVITED'];
 const staffChanged = (result: unknown, error: GraphQLRequestError | undefined) =>

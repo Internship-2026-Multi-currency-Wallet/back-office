@@ -16,10 +16,8 @@ import type {
 } from '../gql/wallet-core/graphql';
 
 /**
- * Mock of the wallet-core staff auth contract. The HttpOnly `staff_refresh_token` cookie is imitated by a plain
- * `mock_staff_refresh` cookie (`<staffId>.<sessionVersion>`), so a reload keeps the session. Ending a staff member's
- * sessions bumps `sessionVersion`: older refresh cookies stop working, like wallet-core's revoked sessions. Fake
- * passwords only.
+ * Mock of the wallet-core staff auth contract (fake passwords only); a readable
+ * `mock_staff_refresh=<staffId>.<sessionVersion>` cookie imitates the HttpOnly refresh cookie.
  */
 const walletCore = graphql.link(config.walletCoreUrl);
 
@@ -50,8 +48,6 @@ interface MockStaff {
   failedLogins: number;
   lockedUntil: number | null;
   createdAt: string;
-  /** Bumped when wallet-core would revoke the sessions (role change, deactivation, password change). */
-  sessionVersion: number;
 }
 
 const initialStaff = (): MockStaff[] => [
@@ -64,7 +60,6 @@ const initialStaff = (): MockStaff[] => [
     invitationToken: null,
     failedLogins: 0,
     lockedUntil: null,
-    sessionVersion: 0,
     createdAt: '2026-01-05T09:00:00.000Z',
   },
   {
@@ -76,7 +71,6 @@ const initialStaff = (): MockStaff[] => [
     invitationToken: null,
     failedLogins: 0,
     lockedUntil: null,
-    sessionVersion: 0,
     createdAt: '2026-02-10T12:30:00.000Z',
   },
   {
@@ -88,17 +82,43 @@ const initialStaff = (): MockStaff[] => [
     invitationToken: MOCK_INVITATION_TOKEN,
     failedLogins: 0,
     lockedUntil: null,
-    sessionVersion: 0,
     createdAt: '2026-03-15T08:45:00.000Z',
   },
 ];
 
+// Outlive a reload like the refresh cookie they validate, or the kept session would be rejected and a revoked
+// cookie accepted again. Only counters per staff id: no passwords, tokens or invitation secrets.
+const SESSION_VERSIONS_KEY = 'mock_staff_session_versions';
+
+function loadSessionVersions(): Record<string, number> {
+  try {
+    const stored: unknown = JSON.parse(localStorage.getItem(SESSION_VERSIONS_KEY) ?? '{}');
+    if (typeof stored !== 'object' || stored === null) return {};
+    return Object.fromEntries(
+      Object.entries(stored).filter(([, version]) => Number.isSafeInteger(version)),
+    ) as Record<string, number>;
+  } catch {
+    return {};
+  }
+}
+
 let staff = initialStaff();
 let invitations = 0;
+let sessionVersions = loadSessionVersions();
+
+const sessionVersion = (staffId: string) => sessionVersions[staffId] ?? 0;
+
+/** wallet-core `revokeSessions`: every refresh cookie issued so far stops working. */
+function endSessions(staffId: string): void {
+  sessionVersions = { ...sessionVersions, [staffId]: sessionVersion(staffId) + 1 };
+  localStorage.setItem(SESSION_VERSIONS_KEY, JSON.stringify(sessionVersions));
+}
 
 export function resetMockStaff(): void {
   staff = initialStaff();
   invitations = 0;
+  sessionVersions = {};
+  localStorage.removeItem(SESSION_VERSIONS_KEY);
   clearRefreshCookie();
 }
 
@@ -193,13 +213,11 @@ export const mockStaff = {
       failedLogins: 0,
       lockedUntil: null,
       createdAt: new Date().toISOString(),
-      sessionVersion: 0,
     };
     staff.push(member);
     return toMember(member);
   },
 
-  /** Like wallet-core `resendStaffInvitation`: the earlier token stops working, a new one replaces it. */
   resendInvitation(staffId: string): StaffMember {
     const member = findOrThrow(staffId);
     if (member.status !== 'INVITED')
@@ -209,17 +227,15 @@ export const mockStaff = {
     return toMember(member);
   },
 
-  /** Like wallet-core `changeStaffRole`: the same role changes nothing; otherwise the target's sessions end. */
   changeRole(staffId: string, role: StaffRole): StaffMember {
     const member = findOrThrow(staffId);
     if (member.role === role) return toMember(member);
     assertNotLastAdmin(member);
     member.role = role;
-    member.sessionVersion += 1;
+    endSessions(member.id);
     return toMember(member);
   },
 
-  /** Like wallet-core `deactivateStaff`: never oneself or the last active admin; ends sessions and invitations. */
   deactivate(actorId: string, staffId: string): StaffMember {
     const member = findOrThrow(staffId);
     if (member.id.toLowerCase() === actorId.toLowerCase())
@@ -227,14 +243,14 @@ export const mockStaff = {
     if (member.status === 'DEACTIVATED') return toMember(member);
     assertNotLastAdmin(member);
     member.status = 'DEACTIVATED';
-    member.sessionVersion += 1;
+    endSessions(member.id);
     member.invitationToken = null;
     return toMember(member);
   },
 
   /**
-   * Like wallet-core `changeOwnStaffPassword`: ends every other session of the caller, keeps the current one (the
-   * refresh cookie of this browser, if it is the caller's and still valid).
+   * wallet-core ends the caller's other sessions and keeps the current refresh session; the mock tracks session
+   * versions per staff member, so it re-issues this browser's still valid cookie instead.
    */
   changeOwnPassword(staffId: string, input: ChangeOwnStaffPasswordInput): boolean {
     const wrong = () =>
@@ -249,7 +265,7 @@ export const mockStaff = {
     if (input.currentPassword !== member.password) throw wrong();
     const keepsCurrent = refreshCookieMember() === member;
     member.password = input.newPassword;
-    member.sessionVersion += 1;
+    endSessions(member.id);
     if (keepsCurrent) setRefreshCookie(member.id);
     return true;
   },
@@ -261,7 +277,6 @@ function findOrThrow(staffId: string): MockStaff {
   return member;
 }
 
-/** Only an ACTIVE admin counts; wallet-core checks it the same way before a demotion or deactivation. */
 function assertNotLastAdmin(target: MockStaff): void {
   if (target.status !== 'ACTIVE' || target.role !== 'ADMIN') return;
   const admins = staff.filter((s) => s.status === 'ACTIVE' && s.role === 'ADMIN');
@@ -273,9 +288,8 @@ function assertNotLastAdmin(target: MockStaff): void {
 }
 
 /**
- * `mock-staff.<staffId>.<expiresAtMs>.<permissions>`: stateless, so handlers can check it without a session store.
- * Like the wallet-core access JWT it carries the permissions of the role at issue time: after a role change or a
- * deactivation it keeps working until it expires; only the refresh is refused.
+ * Snapshot permissions so existing access survives role changes and deactivation until expiry, matching
+ * wallet-core.
  */
 export function mockAccessToken(staffId: string, expiresAt = Date.now() + ACCESS_TTL_MS): string {
   const member = staff.find((s) => s.id === staffId);
@@ -283,7 +297,6 @@ export function mockAccessToken(staffId: string, expiresAt = Date.now() + ACCESS
   return `mock-staff.${staffId}.${expiresAt}.${permissions.join(',')}`;
 }
 
-/** The staff member of a still valid mock access token, with the permissions the token carries. */
 export function staffFromBearer(
   authorization: string | null,
 ): { id: string; permissions: string[] } | null {
@@ -293,22 +306,19 @@ export function staffFromBearer(
   return member ? { id: member.id, permissions: match[3].split(',').filter(Boolean) } : null;
 }
 
-/** A session of this staff member as it is now: ending their sessions later makes this cookie invalid. */
 export function setRefreshCookie(staffId: string): void {
-  const version = staff.find((s) => s.id === staffId)?.sessionVersion ?? 0;
-  document.cookie = `${REFRESH_COOKIE}=${staffId}.${version}; path=/; max-age=${8 * 3600}`;
+  document.cookie = `${REFRESH_COOKIE}=${staffId}.${sessionVersion(staffId)}; path=/; max-age=${8 * 3600}`;
 }
 
 function clearRefreshCookie(): void {
   document.cookie = `${REFRESH_COOKIE}=; path=/; max-age=0`;
 }
 
-/** The ACTIVE staff member whose session the refresh cookie still is, or `null` (missing, revoked or inactive). */
 function refreshCookieMember(): MockStaff | null {
   const value = new RegExp(`(?:^|; )${REFRESH_COOKIE}=([^;]+)`).exec(document.cookie)?.[1] ?? '';
   const match = /^(.+)\.(\d+)$/.exec(value);
   const member = match && staff.find((s) => s.id === match[1]);
-  if (!member || member.status !== 'ACTIVE' || member.sessionVersion !== Number(match[2]))
+  if (!member || member.status !== 'ACTIVE' || sessionVersion(member.id) !== Number(match[2]))
     return null;
   return member;
 }

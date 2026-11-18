@@ -5,7 +5,7 @@ export interface PasswordChangeError {
   message: string;
 }
 
-/** wallet-core `changeOwnStaffPassword` errors. Our texts only: never the server message, never a password. */
+/** Local texts only: the server message is for developers and must never echo a password. */
 export function describePasswordChangeError(
   error: Partial<GraphQLRequestError>,
 ): PasswordChangeError {

@@ -12,7 +12,6 @@ import type { GraphQLRequestError } from '../../graphql/client';
 import type { StaffMember } from './staffApi';
 import { type StaffAction, describeStaffActionError } from './staffErrors';
 
-/** An RTK Query mutation result (`await trigger(...)`). */
 export type StaffActionResult =
   | { data: StaffMember; error?: undefined }
   | { data?: undefined; error: Partial<GraphQLRequestError> };
@@ -29,16 +28,14 @@ interface Props extends StaffActionDialogProps {
   confirmLabel: string;
   pendingLabel: string;
   confirmColor?: 'primary' | 'error';
-  /** `false` keeps the confirm button disabled, e.g. while the selected role is the current one. */
   canConfirm?: boolean;
   onConfirm: () => Promise<StaffActionResult>;
   children: ReactNode;
 }
 
 /**
- * One confirmation step for a staff row action: the mutation runs only on Confirm, once per click (a double click
- * sends one request), and the dialog cannot be closed while it runs. A failure keeps the dialog open with our text
- * for the error code, so the admin can retry or cancel. Mount it with a new `key` per opening to start clean.
+ * Mount a new keyed instance on each opening because successful submissions intentionally leave this instance
+ * blocked.
  */
 export function StaffActionDialog({
   open,
@@ -65,8 +62,7 @@ export function StaffActionDialog({
     setPending(true);
     setError(null);
     const result = await onConfirm();
-    // After a success the dialog closes and is never reused (a new `key` per opening): it stays blocked, so no
-    // further click during the closing transition can send the mutation again. Only a failure allows a retry.
+    // Stay blocked after a success, so a click during the closing transition cannot send it again.
     if (result.data) {
       onDone(result.data);
       return;

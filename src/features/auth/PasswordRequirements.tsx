@@ -1,7 +1,6 @@
 import { List, ListItem, ListItemIcon, ListItemText } from '@mui/material';
 import { PASSWORD_RULES } from './passwordRules';
 
-/** The rules with a check mark for each one the password already meets. */
 export function PasswordRequirements({ password }: { password: string }) {
   return (
     <List dense disablePadding aria-label="Password requirements">
