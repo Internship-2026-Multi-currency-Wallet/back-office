@@ -12,17 +12,9 @@ import {
 } from '@mui/material';
 import { type FormEvent, useRef, useState } from 'react';
 import type { StaffRole } from '../../gql/wallet-core/graphql';
+import { ROLE_LABELS, ROLES } from './roles';
 import { type InviteError, describeInviteError } from './staffErrors';
 import { type StaffMember, useInviteStaffMutation } from './staffApi';
-
-/** Every wallet-core `StaffRole`: a role added to the contract breaks the build here. */
-const ROLE_LABELS: Record<StaffRole, string> = {
-  ADMIN: 'Admin',
-  COMPLIANCE: 'Compliance',
-  FINANCE: 'Finance',
-  SUPPORT: 'Support',
-};
-const ROLES = Object.keys(ROLE_LABELS) as StaffRole[];
 
 // UX only: wallet-core validates the email again and is authoritative.
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
