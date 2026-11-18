@@ -86,11 +86,32 @@ const initialStaff = (): MockStaff[] => [
 ];
 
 let staff = initialStaff();
+let invitations = 0;
 
 export function resetMockStaff(): void {
   staff = initialStaff();
+  invitations = 0;
   clearRefreshCookie();
 }
+
+export class MockStaffError extends Error {
+  readonly code: 'BAD_USER_INPUT' | 'STAFF_ALREADY_EXISTS';
+  readonly extensions: Record<string, string>;
+
+  constructor(
+    code: MockStaffError['code'],
+    message: string,
+    extensions: Record<string, string> = {},
+  ) {
+    super(message);
+    this.code = code;
+    this.extensions = extensions;
+  }
+}
+
+// Close to wallet-core's `z.email()`; the real backend stays authoritative.
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const EMAIL_MAX_LENGTH = 255;
 
 const toMe = ({ id, email, role }: MockStaff) => ({
   id,
@@ -99,7 +120,9 @@ const toMe = ({ id, email, role }: MockStaff) => ({
   permissions: ROLE_PERMISSIONS[role],
 });
 
-const toMember = ({ id, email, role, status, createdAt }: MockStaff) => ({
+type StaffMember = StaffMembersQuery['staffMembers'][number];
+
+const toMember = ({ id, email, role, status, createdAt }: MockStaff): StaffMember => ({
   id,
   email,
   role,
@@ -114,6 +137,40 @@ export const mockStaff = {
     return [...staff]
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))
       .map(toMember);
+  },
+
+  /** Like wallet-core `inviteStaff`: one collection, so the invitee can accept and then log in. */
+  invite(rawEmail: string, role: StaffRole): StaffMember {
+    const email = rawEmail.trim().toLowerCase();
+    if (!EMAIL.test(email))
+      throw new MockStaffError('BAD_USER_INPUT', 'Email must be a valid email address', {
+        field: 'email',
+      });
+    if (email.length > EMAIL_MAX_LENGTH)
+      throw new MockStaffError('BAD_USER_INPUT', 'Email must be at most 255 characters', {
+        field: 'email',
+      });
+    // Any status, deactivated included: an email belongs to one staff account.
+    if (staff.some((s) => s.email === email))
+      throw new MockStaffError(
+        'STAFF_ALREADY_EXISTS',
+        'Staff member with this email already exists',
+      );
+    invitations += 1;
+    const member: MockStaff = {
+      id: `staff-invite-${invitations}`,
+      email,
+      role,
+      status: 'INVITED',
+      password: null,
+      // Deterministic for tests, never returned or shown: only the invitation link would carry it.
+      invitationToken: `mock-invitation-${invitations}`,
+      failedLogins: 0,
+      lockedUntil: null,
+      createdAt: new Date().toISOString(),
+    };
+    staff.push(member);
+    return toMember(member);
   },
 };
 

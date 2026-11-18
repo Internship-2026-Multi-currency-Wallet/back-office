@@ -1,6 +1,10 @@
-import { Alert, Button, Chip, Paper, Stack, Typography } from '@mui/material';
+import { Alert, Button, Chip, Paper, Snackbar, Stack, Typography } from '@mui/material';
 import { DataGrid, type GridColDef } from '@mui/x-data-grid';
+import { useState } from 'react';
 import type { StaffStatus } from '../../gql/wallet-core/graphql';
+import { RequirePermission } from '../permissions/RequirePermission';
+import { InviteStaffDialog } from './InviteStaffDialog';
+import { STAFF_MODIFY_PERMISSION } from './permissions';
 import { type StaffMember, useStaffMembersQuery } from './staffApi';
 
 const statusColor: Record<StaffStatus, 'success' | 'warning' | 'default'> = {
@@ -33,12 +37,21 @@ export function StaffPage() {
   const { data, isLoading, isFetching, error, refetch } = useStaffMembersQuery(undefined, {
     refetchOnMountOrArgChange: true,
   });
+  const [inviting, setInviting] = useState(false);
+  const [invited, setInvited] = useState(false);
 
   return (
     <Stack spacing={2}>
-      <Typography variant="h4" component="h1">
-        Staff
-      </Typography>
+      <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
+        <Typography variant="h4" component="h1">
+          Staff
+        </Typography>
+        <RequirePermission permission={STAFF_MODIFY_PERMISSION}>
+          <Button variant="contained" onClick={() => setInviting(true)}>
+            Invite staff
+          </Button>
+        </RequirePermission>
+      </Stack>
       {error && (
         <Alert
           severity={data ? 'warning' : 'error'}
@@ -67,6 +80,25 @@ export function StaffPage() {
           />
         </Paper>
       )}
+      <InviteStaffDialog
+        open={inviting}
+        onClose={() => setInviting(false)}
+        onInvited={() => {
+          setInviting(false);
+          setInvited(true);
+        }}
+      />
+      {/* Only that the account exists: wallet-core sends the email on its own and may fail to deliver it. */}
+      <Snackbar
+        open={invited}
+        autoHideDuration={5000}
+        onClose={(_, reason) => reason !== 'clickaway' && setInvited(false)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+      >
+        <Alert severity="success" variant="filled" onClose={() => setInvited(false)}>
+          Staff invited
+        </Alert>
+      </Snackbar>
     </Stack>
   );
 }
