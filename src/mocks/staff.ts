@@ -107,7 +107,7 @@ const toMember = ({ id, email, role, status, createdAt }: MockStaff) => ({
   createdAt,
 });
 
-/** The mock backend's staff list (`staffMembers`): the same collection login and invitations use. */
+/** Keep listing and authentication on the same collection so accepted invitations appear without separate synchronization. */
 export const mockStaff = {
   list(): StaffMembersQuery['staffMembers'] {
     // Like wallet-core: oldest first, then by id.

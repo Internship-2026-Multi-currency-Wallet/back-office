@@ -29,7 +29,6 @@ const columns: GridColDef<StaffMember>[] = [
   },
 ];
 
-/** All staff accounts of this client. The route requires `bo:staff` (`app/routes.tsx`). */
 export function StaffPage() {
   const { data, isLoading, isFetching, error, refetch } = useStaffMembersQuery(undefined, {
     refetchOnMountOrArgChange: true,
