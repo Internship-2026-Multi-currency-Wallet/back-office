@@ -4,6 +4,7 @@ import { LoginPage } from '../features/auth/LoginPage';
 import { RequireAuth } from '../features/auth/RequireAuth';
 import { RequireRoutePermission } from '../features/permissions/NoAccessPage';
 import { SETTINGS_PERMISSIONS } from '../features/settings/permissions';
+import { STAFF_PERMISSION } from '../features/staff/permissions';
 import { AppLayout } from '../layout/AppLayout';
 import { HomePage } from '../pages/HomePage';
 import { NotFoundPage } from '../pages/NotFoundPage';
@@ -39,6 +40,17 @@ export const routes: RouteObject[] = [
                 path: 'settings',
                 lazy: async () => ({
                   Component: (await import('../features/settings/SettingsPage')).SettingsPage,
+                }),
+              },
+            ],
+          },
+          {
+            element: <RequireRoutePermission permission={STAFF_PERMISSION} />,
+            children: [
+              {
+                path: 'staff',
+                lazy: async () => ({
+                  Component: (await import('../features/staff/StaffPage')).StaffPage,
                 }),
               },
             ],

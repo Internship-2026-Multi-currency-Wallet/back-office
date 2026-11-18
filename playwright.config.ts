@@ -17,12 +17,12 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
-      testIgnore: /(auth|accept-invitation)\.spec\.ts/,
+      testIgnore: /(auth|accept-invitation|staff)\.spec\.ts/,
       use: { ...devices['Desktop Chrome'], baseURL: `http://localhost:${PORT}` },
     },
     {
       name: 'staff-login',
-      testMatch: /(auth|accept-invitation)\.spec\.ts/,
+      testMatch: /(auth|accept-invitation|staff)\.spec\.ts/,
       use: { ...devices['Desktop Chrome'], baseURL: `http://localhost:${LOGIN_PORT}` },
     },
   ],
